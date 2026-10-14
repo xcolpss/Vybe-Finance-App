@@ -17,7 +17,11 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.xcolps.vybefinance"
+      "package": "com.xcolps.vybefinance",
+      "permissions": [
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -25,7 +29,13 @@
     "plugins": [
       "expo-sqlite",
       "expo-router",
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-file-system",
+        {
+          "enableFileSharing": true
+        }
+      ]
     ],
     "extra": {
       "router": {},

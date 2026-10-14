@@ -11,14 +11,20 @@ import {
   StatusBar,
   Animated,
   Dimensions,
-  Share,
   Platform,
   KeyboardAvoidingView,
   Switch,
+  Alert,
 } from "react-native";
-import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system/legacy";
+import {
+  downloadInvoicePdf,
+  shareInvoicePdf,
+  escapeHtml,
+  invoicePdfErrorMessage,
+  isUserCancelled,
+} from "./src/utils/pdfExport";
 import * as DocumentPicker from "expo-document-picker";
 import * as LocalAuthentication from "expo-local-authentication";
 import {
@@ -836,13 +842,14 @@ export default function App() {
   };
 
   // Robust Writable DocumentDirectory PDF Invoice Engine
-  const generateAndDownloadPDFInvoice = async () => {
+  // Helper to compile invoice HTML and metadata
+  const buildInvoiceData = () => {
     if (!invoiceClient) {
       setErrorModal({
         visible: true,
         message: "Please select a client for the invoice.",
       });
-      return;
+      return null;
     }
 
     const bankAcc = accounts.find((a) => a.id === invoiceAccountId);
@@ -859,7 +866,7 @@ export default function App() {
         totalCalculated += p;
         itemsHTML += `
           <tr>
-            <td style="padding: 10px; border-bottom: 1px solid #ddd;">${idx + 1}. ${item.desc || "Service Item"}</td>
+            <td style="padding: 10px; border-bottom: 1px solid #ddd;">${idx + 1}. ${escapeHtml(item.desc || "Service Item")}</td>
             <td style="padding: 10px; border-bottom: 1px solid #ddd; text-align: right; font-weight: bold;">PKR ${p.toLocaleString()}</td>
           </tr>
         `;
@@ -868,7 +875,7 @@ export default function App() {
       totalCalculated = parseFloat(invoiceItems[0]?.price) || 0;
       itemsHTML = `
         <tr>
-          <td colspan="2" style="padding: 12px; border-bottom: 1px solid #ddd;">${invoiceNotes || invoiceItems[0]?.desc || "Professional Services Rendered"}</td>
+          <td colspan="2" style="padding: 12px; border-bottom: 1px solid #ddd;">${escapeHtml(invoiceNotes || invoiceItems[0]?.desc || "Professional Services Rendered")}</td>
         </tr>
       `;
     }
@@ -878,42 +885,46 @@ export default function App() {
       <html>
       <head>
         <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Invoice</title>
         <style>
-          body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #111; padding: 30px; }
-          .header { display: flex; justify-content: space-between; border-bottom: 2px solid ${auraColor}; padding-bottom: 20px; margin-bottom: 20px; }
+          @page { margin: 16px; }
+          body { font-family: Helvetica, Arial, sans-serif; color: #111; padding: 24px; }
+          .header { width: 100%; border-bottom: 2px solid ${auraColor}; padding-bottom: 16px; margin-bottom: 20px; }
           .title { font-size: 22px; font-weight: bold; color: ${auraColor}; }
           .meta { font-size: 12px; color: #555; text-align: right; }
           .section { margin-bottom: 20px; }
           .section-title { font-size: 14px; font-weight: bold; color: #333; margin-bottom: 6px; text-transform: uppercase; border-bottom: 1px solid #eee; padding-bottom: 4px; }
           table { width: 100%; border-collapse: collapse; margin-top: 10px; }
           th { background: #f4f5fa; padding: 10px; text-align: left; font-size: 12px; color: #444; }
-          .total-box { margin-top: 20px; text-align: right; font-size: 18px; font-weight: bold; color: #111; background: #f4f5fa; padding: 15px; border-radius: 8px; }
+          .total-box { margin-top: 20px; text-align: right; font-size: 18px; font-weight: bold; color: #111; background: #f4f5fa; padding: 15px; }
           .footer { margin-top: 40px; text-align: center; font-size: 10px; color: #888; border-top: 1px solid #eee; padding-top: 15px; }
         </style>
       </head>
       <body>
-        <div class="header">
-          <div>
-            <div class="title">${invoiceHeading}</div>
-            <div style="font-size: 11px; color: #778; margin-top: 4px;">VYBE Finance Aura Engine</div>
-          </div>
-          <div class="meta">
-            <div><strong>Date:</strong> ${dateStr}</div>
-            <div><strong>Time:</strong> ${timeStr}</div>
-          </div>
-        </div>
+        <table class="header">
+          <tr>
+            <td>
+              <div class="title">${escapeHtml(invoiceHeading)}</div>
+              <div style="font-size: 11px; color: #778; margin-top: 4px;">VYBE Finance Aura Engine</div>
+            </td>
+            <td class="meta">
+              <div><strong>Date:</strong> ${escapeHtml(dateStr)}</div>
+              <div><strong>Time:</strong> ${escapeHtml(timeStr)}</div>
+            </td>
+          </tr>
+        </table>
 
         <div class="section">
           <div class="section-title">Client Details</div>
-          <div><strong>Name:</strong> ${invoiceClient.name}</div>
-          <div><strong>Company:</strong> ${invoiceClient.company} (${invoiceClient.country})</div>
-          <div><strong>Category:</strong> ${invoiceClient.category}</div>
+          <div><strong>Name:</strong> ${escapeHtml(invoiceClient.name)}</div>
+          <div><strong>Company:</strong> ${escapeHtml(invoiceClient.company)} (${escapeHtml(invoiceClient.country)})</div>
+          <div><strong>Category:</strong> ${escapeHtml(invoiceClient.category)}</div>
         </div>
 
         <div class="section">
           <div class="section-title">Payment Account / Routing</div>
-          <div><strong>Bank/Wallet:</strong> ${bankAcc?.name || "Main Wallet"} (${bankAcc?.type || "wallet"})</div>
+          <div><strong>Bank/Wallet:</strong> ${escapeHtml(bankAcc?.name || "Main Wallet")} (${escapeHtml(bankAcc?.type || "wallet")})</div>
         </div>
 
         <div class="section">
@@ -942,6 +953,15 @@ export default function App() {
       </html>
     `;
 
+    return { htmlContent, totalCalculated };
+  };
+
+  // Direct download to mobile device storage (no Share Sheet)
+  const generateAndDownloadPDFInvoice = async () => {
+    const data = buildInvoiceData();
+    if (!data) return;
+    const { htmlContent, totalCalculated } = data;
+
     try {
       saveInvoiceHistory(
         invoiceClient.name,
@@ -951,48 +971,60 @@ export default function App() {
       );
       loadData();
 
-      if (Platform.OS === "web") {
-        const printWindow = window.open("", "_blank");
-        if (printWindow) {
-          printWindow.document.write(htmlContent);
-          printWindow.document.close();
-          printWindow.focus();
-          setTimeout(() => {
-            printWindow.print();
-            printWindow.close();
-          }, 500);
-        } else {
-          await Print.printAsync({ html: htmlContent });
-        }
-      } else {
-        const file = await Print.printToFileAsync({
-          html: htmlContent,
-          base64: true,
-        });
-        const fileName = `Invoice_${invoiceClient.name.replace(/\s+/g, "_")}_${Date.now()}.pdf`;
-        const permanentUri = `${FileSystem.documentDirectory}${fileName}`;
+      const result = await downloadInvoicePdf({
+        html: htmlContent,
+        fileName: `Invoice_${invoiceClient?.name || "Client"}_${Date.now()}`,
+      });
 
-        await FileSystem.writeAsStringAsync(permanentUri, file.base64 || "", {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-
-        if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(permanentUri, {
-            mimeType: "application/pdf",
-            dialogTitle: "Download & Share PDF Invoice",
-          });
-        } else {
-          await Share.share({ message: `PDF generated at: ${permanentUri}` });
-        }
+      if (!result.canceled) {
+        setInvoiceModal(false);
+        Alert.alert(
+          "Invoice Saved",
+          "PDF invoice has been saved directly to your device storage.",
+          [{ text: "OK" }],
+        );
       }
+    } catch (e) {
+      if (!isUserCancelled(e)) {
+        console.log("PDF generation error:", e);
+        setErrorModal({
+          visible: true,
+          message: invoicePdfErrorMessage(e),
+        });
+      }
+    }
+  };
+
+  // Separate Share Sheet flow for when user specifically requests sharing
+  const generateAndSharePDFInvoice = async () => {
+    const data = buildInvoiceData();
+    if (!data) return;
+    const { htmlContent, totalCalculated } = data;
+
+    try {
+      saveInvoiceHistory(
+        invoiceClient.name,
+        invoiceHeading,
+        totalCalculated,
+        htmlContent,
+      );
+      loadData();
+
+      await shareInvoicePdf({
+        html: htmlContent,
+        fileName: `Invoice_${invoiceClient?.name || "Client"}_${Date.now()}`,
+        dialogTitle: "Share PDF Invoice",
+      });
 
       setInvoiceModal(false);
     } catch (e) {
-      console.log("PDF generation error:", e);
-      setErrorModal({
-        visible: true,
-        message: "Failed to generate PDF invoice.",
-      });
+      if (!isUserCancelled(e)) {
+        console.log("PDF share error:", e);
+        setErrorModal({
+          visible: true,
+          message: invoicePdfErrorMessage(e),
+        });
+      }
     }
   };
   const downloadDeviceExcelCSV = async () => {
@@ -3517,7 +3549,33 @@ export default function App() {
                 onPress={generateAndDownloadPDFInvoice}
               >
                 <Text style={[styles.saveBtnText, { fontSize: 14 }]}>
-                  Download PDF Invoice 📄
+                  Download & Save to Device 📥
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.saveBtn,
+                  {
+                    backgroundColor: "#1F2438",
+                    borderColor: `${auraColor}80`,
+                    borderWidth: 1,
+                    marginTop: 8,
+                    padding: 14,
+                    borderRadius: 14,
+                    alignItems: "center",
+                  },
+                ]}
+                onPress={generateAndSharePDFInvoice}
+              >
+                <Text
+                  style={{
+                    color: "#F5F6FF",
+                    fontSize: 13,
+                    fontWeight: "600",
+                  }}
+                >
+                  Share Invoice 🔗
                 </Text>
               </TouchableOpacity>
             </ScrollView>
@@ -3607,47 +3665,100 @@ export default function App() {
                       Generated: {new Date(inv.created_at).toLocaleString()}
                     </Text>
 
-                    <TouchableOpacity
-                      style={[
-                        styles.payBillBtn,
-                        {
-                          backgroundColor: auraColor,
-                          shadowColor: auraColor,
-                          paddingVertical: 8,
-                          paddingHorizontal: 12,
-                          alignSelf: "flex-end",
-                        },
-                      ]}
-                      onPress={async () => {
-                        try {
-                          const { uri } = await Print.printToFileAsync({
-                            html: inv.html_content,
-                          });
-                          const fileName = `Invoice_${inv.client_name.replace(/\s+/g, "_")}_${Date.now()}.pdf`;
-                          const permanentUri = `${FileSystem.documentDirectory}${fileName}`;
-                          await FileSystem.copyAsync({
-                            from: uri,
-                            to: permanentUri,
-                          });
-                          await Sharing.shareAsync(permanentUri, {
-                            mimeType: "application/pdf",
-                            dialogTitle: "Download Past Invoice",
-                          });
-                        } catch (e) {
-                          console.log("Download history error:", e);
-                        }
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        justifyContent: "flex-end",
+                        alignItems: "center",
+                        gap: 8,
+                        marginTop: 6,
                       }}
                     >
-                      <Text
-                        style={{
-                          color: "#FFFFFF",
-                          fontSize: 11,
-                          fontWeight: "bold",
+                      <TouchableOpacity
+                        style={[
+                          styles.payBillBtn,
+                          {
+                            backgroundColor: auraColor,
+                            shadowColor: auraColor,
+                            paddingVertical: 8,
+                            paddingHorizontal: 12,
+                          },
+                        ]}
+                        onPress={async () => {
+                          try {
+                            const res = await downloadInvoicePdf({
+                              html: inv.html_content,
+                              fileName: `Invoice_${inv.client_name || "Client"}_${Date.now()}`,
+                            });
+                            if (!res.canceled) {
+                              Alert.alert(
+                                "Invoice Saved",
+                                "PDF invoice has been saved directly to your device storage.",
+                                [{ text: "OK" }],
+                              );
+                            }
+                          } catch (e) {
+                            if (!isUserCancelled(e)) {
+                              console.log("Download history error:", e);
+                              setErrorModal({
+                                visible: true,
+                                message: invoicePdfErrorMessage(e),
+                              });
+                            }
+                          }
                         }}
                       >
-                        Download PDF 📄
-                      </Text>
-                    </TouchableOpacity>
+                        <Text
+                          style={{
+                            color: "#FFFFFF",
+                            fontSize: 11,
+                            fontWeight: "bold",
+                          }}
+                        >
+                          Save to Device 📥
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[
+                          styles.payBillBtn,
+                          {
+                            backgroundColor: "#1F2438",
+                            borderColor: auraColor,
+                            borderWidth: 1,
+                            paddingVertical: 8,
+                            paddingHorizontal: 12,
+                          },
+                        ]}
+                        onPress={async () => {
+                          try {
+                            await shareInvoicePdf({
+                              html: inv.html_content,
+                              fileName: `Invoice_${inv.client_name || "Client"}_${Date.now()}`,
+                              dialogTitle: "Share Past Invoice",
+                            });
+                          } catch (e) {
+                            if (!isUserCancelled(e)) {
+                              console.log("Share history error:", e);
+                              setErrorModal({
+                                visible: true,
+                                message: invoicePdfErrorMessage(e),
+                              });
+                            }
+                          }
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: "#FFFFFF",
+                            fontSize: 11,
+                            fontWeight: "bold",
+                          }}
+                        >
+                          Share 🔗
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 ))
               )}
