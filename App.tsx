@@ -76,8 +76,6 @@ import {
   restoreFullBackupJSON,
 } from "./src/db/database";
 
-const screenWidth = Dimensions.get("window").width;
-
 const WORLD_CURRENCIES = [
   { code: "USD", country: "United States", flag: "🇺🇸" },
   { code: "EUR", country: "Eurozone", flag: "🇪🇺" },
@@ -94,6 +92,10 @@ const WORLD_CURRENCIES = [
   { code: "SGD", country: "Singapore", flag: "🇸🇬" },
   { code: "MYR", country: "Malaysia", flag: "🇲🇾" },
   { code: "TRY", country: "Turkey", flag: "🇹🇷" },
+  { code: "QAR", country: "Qatar", flag: "🇶🇦" },
+  { code: "OMR", country: "Oman", flag: "🇴🇲" },
+  { code: "KWD", country: "Kuwait", flag: "🇰🇼" },
+  { code: "BHD", country: "Bahrain", flag: "🇧🇭" },
 ].sort((a, b) => a.code.localeCompare(b.code));
 
 const COLOR_SPECTRUM = [
@@ -128,18 +130,22 @@ export default function App() {
     "AED",
   ]);
 
-  // Navigation Tab State (5 Tabs)
   const [activeTab, setActiveTab] = useState<
     "dashboard" | "bills" | "budgets" | "goals" | "debts"
   >("dashboard");
 
-  // Theme & Security State
   const [auraColor, setAuraColor] = useState("#8279FF");
   const [themeModal, setThemeModal] = useState(false);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
 
-  // Modals & Menus
   const [onboardingModal, setOnboardingModal] = useState(false);
+  const [onboardStep, setOnboardStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+  const [userNameInput, setUserNameInput] = useState("");
+  const [baseCurrencyChoice, setBaseCurrencyChoice] = useState("PKR");
+  const [currencySearchQuery, setCurrencySearchQuery] = useState("");
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [tutorialStep, setTutorialStep] = useState<1 | 2 | 3 | 4>(1);
+
   const [txModal, setTxModal] = useState(false);
   const [clientModal, setClientModal] = useState(false);
   const [accountModal, setAccountModal] = useState(false);
@@ -152,7 +158,6 @@ export default function App() {
   }>({ visible: false, goal: null });
   const [debtModal, setDebtModal] = useState(false);
 
-  // Invoice Generator & History State
   const [invoiceModal, setInvoiceModal] = useState(false);
   const [invoiceHistoryModal, setInvoiceHistoryModal] = useState(false);
   const [invoiceHeading, setInvoiceHeading] = useState(
@@ -185,10 +190,7 @@ export default function App() {
     visible: boolean;
     message: string;
   }>({ visible: false, message: "" });
-  const [currencySearchQuery, setCurrencySearchQuery] = useState("");
-  const [baseCurrencyChoice, setBaseCurrencyChoice] = useState("PKR");
 
-  // Privacy & Undo State
   const [isPrivacyMode, setIsPrivacyMode] = useState(false);
   const [undoAction, setUndoAction] = useState<{
     message: string;
@@ -196,7 +198,6 @@ export default function App() {
   } | null>(null);
   const [expandedTxId, setExpandedTxId] = useState<number | null>(null);
 
-  // Filters & Ranges
   const [selectedAccountFilter, setSelectedAccountFilter] = useState<
     number | null
   >(null);
@@ -207,19 +208,13 @@ export default function App() {
   const [startDate, setStartDate] = useState("2026-01-01");
   const [endDate, setEndDate] = useState("2026-12-31");
 
-  // Export Range
-  const [exportRangeTab, setExportRangeTab] = useState<"start" | "end">(
-    "start",
-  );
   const [exportStartDate, setExportStartDate] = useState("2026-10-01");
   const [exportEndDate, setExportEndDate] = useState("2026-10-31");
 
-  // Goal Date Picker State
   const [goalYear, setGoalYear] = useState("2026");
   const [goalMonth, setGoalMonth] = useState("12");
   const [goalDay, setGoalDay] = useState("31");
 
-  // Debt Date Picker State
   const [debtYear, setDebtYear] = useState("2026");
   const [debtMonth, setDebtMonth] = useState("12");
   const [debtDay, setDebtDay] = useState("31");
@@ -227,7 +222,6 @@ export default function App() {
   const [editingClient, setEditingClient] = useState<any>(null);
   const [editingTx, setEditingTx] = useState<any>(null);
 
-  // Transaction form
   const [txType, setTxType] = useState<"in" | "out" | "transfer">("out");
   const [amountInput, setAmountInput] = useState("");
   const [currency, setCurrency] = useState("PKR");
@@ -242,49 +236,41 @@ export default function App() {
   const [quickClientName, setQuickClientName] = useState("");
   const [showQuickClientInput, setShowQuickClientInput] = useState(false);
 
-  // Account form
   const [accName, setAccName] = useState("");
   const [accType, setAccType] = useState("wallet");
   const [accBalance, setAccBalance] = useState("");
 
-  // Client form
   const [clientName, setClientName] = useState("");
   const [clientCompany, setClientCompany] = useState("");
   const [clientCountry, setClientCountry] = useState("");
   const [clientCategory, setClientCategory] = useState("Upwork");
 
-  // Recurring Bill form
   const [billName, setBillName] = useState("");
   const [billAmount, setBillAmount] = useState("");
   const [billCategory, setBillCategory] = useState("Software & Subscriptions");
   const [billAccountId, setBillAccountId] = useState(1);
   const [billDueDay, setBillDueDay] = useState("1");
 
-  // Category & Budget form
   const [newCatName, setNewCatName] = useState("");
   const [newCatType, setNewCatType] = useState<"in" | "out">("out");
   const [budgetCategory, setBudgetCategory] = useState("Groceries & Food");
   const [budgetLimitInput, setBudgetLimitInput] = useState("");
 
-  // Savings Goal Form State
   const [editingGoalId, setEditingGoalId] = useState<number | null>(null);
   const [goalTitle, setGoalTitle] = useState("");
   const [goalTargetAmount, setGoalTargetAmount] = useState("");
   const [goalFundInput, setGoalFundInput] = useState("");
   const [fundingAccountId, setFundingAccountId] = useState<number>(1);
 
-  // Debt Form State
   const [debtTitle, setDebtTitle] = useState("");
   const [debtType, setDebtType] = useState<"lent" | "borrowed">("lent");
   const [debtAmount, setDebtAmount] = useState("");
   const [debtAccountId, setDebtAccountId] = useState<number>(1);
 
-  // Animation values
   const slideAnim = useRef(new Animated.Value(-300)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const auraGlowAnim = useRef(new Animated.Value(0.5)).current;
   const undoProgressAnim = useRef(new Animated.Value(1)).current;
-  const tabSlideAnim = useRef(new Animated.Value(0)).current;
   const accountScaleAnims = useRef<{ [key: number]: Animated.Value }>(
     {},
   ).current;
@@ -339,6 +325,7 @@ export default function App() {
     const baseCur = getBaseCurrency();
     if (!baseCur) {
       setOnboardingModal(true);
+      setOnboardStep(1);
     } else {
       setCurrency(baseCur);
     }
@@ -419,17 +406,9 @@ export default function App() {
 
   const handleTabChange = (
     tab: "dashboard" | "bills" | "budgets" | "goals" | "debts",
-    index: number,
   ) => {
     triggerAuraSurge();
     setActiveTab(tab);
-
-    Animated.spring(tabSlideAnim, {
-      toValue: (index * (screenWidth - 56)) / 5,
-      tension: 70,
-      friction: 12,
-      useNativeDriver: true,
-    }).start();
   };
 
   const handleAccountPressIn = (id: number) => {
@@ -509,6 +488,42 @@ export default function App() {
     addUserCurrency(baseCurrencyChoice);
     setOnboardingModal(false);
     triggerCelebration();
+  };
+
+  const handleClearAllData = async () => {
+    try {
+      const compatible = await LocalAuthentication.hasHardwareAsync();
+      const enrolled = await LocalAuthentication.isEnrolledAsync();
+
+      if (compatible && enrolled) {
+        const res = await LocalAuthentication.authenticateAsync({
+          promptMessage: "Authenticate to Wipe All Data",
+        });
+        if (!res.success) {
+          return;
+        }
+      }
+
+      setConfirmModal({
+        visible: true,
+        title: "⚠️ Factory Reset / Wipe All Data?",
+        message:
+          "This action will permanently delete all local accounts, transactions, clients, budgets, and settings. Are you 100% sure?",
+        onConfirm: () => {
+          if (Platform.OS === "web") {
+            localStorage.clear();
+            window.location.reload();
+          } else {
+            initDatabase();
+            loadData();
+            setOnboardingModal(true);
+            setOnboardStep(1);
+          }
+        },
+      });
+    } catch (e) {
+      console.log("Biometric clear error:", e);
+    }
   };
 
   const handleSaveTransaction = () => {
@@ -841,8 +856,6 @@ export default function App() {
     loadData();
   };
 
-  // Robust Writable DocumentDirectory PDF Invoice Engine
-  // Helper to compile invoice HTML and metadata
   const buildInvoiceData = () => {
     if (!invoiceClient) {
       setErrorModal({
@@ -956,7 +969,6 @@ export default function App() {
     return { htmlContent, totalCalculated };
   };
 
-  // Direct download to mobile device storage (no Share Sheet)
   const generateAndDownloadPDFInvoice = async () => {
     const data = buildInvoiceData();
     if (!data) return;
@@ -995,7 +1007,6 @@ export default function App() {
     }
   };
 
-  // Separate Share Sheet flow for when user specifically requests sharing
   const generateAndSharePDFInvoice = async () => {
     const data = buildInvoiceData();
     if (!data) return;
@@ -1027,6 +1038,7 @@ export default function App() {
       }
     }
   };
+
   const downloadDeviceExcelCSV = async () => {
     try {
       const csvData = exportTransactionsCSV(exportStartDate, exportEndDate);
@@ -1057,7 +1069,6 @@ export default function App() {
     }
   };
 
-  // JSON Backup Upload & Restore
   const handleUploadBackup = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -1323,26 +1334,21 @@ export default function App() {
             </View>
           )}
 
-          {/* FLUID LIQUID GLASS NAVIGATION TABS (5 Tabs) */}
+          {/* FIXED FLUID LIQUID GLASS NAVIGATION TABS */}
           <View
             style={[
               styles.mainNavTabs,
               { borderColor: `${auraColor}40`, shadowColor: auraColor },
             ]}
           >
-            <Animated.View
+            <TouchableOpacity
               style={[
-                styles.slidingGlassIndicator,
-                {
+                styles.mainNavTabBtn,
+                activeTab === "dashboard" && {
                   backgroundColor: auraColor,
-                  shadowColor: auraColor,
-                  transform: [{ translateX: tabSlideAnim }],
                 },
               ]}
-            />
-            <TouchableOpacity
-              style={styles.mainNavTabBtn}
-              onPress={() => handleTabChange("dashboard", 0)}
+              onPress={() => handleTabChange("dashboard")}
               activeOpacity={0.9}
             >
               <Text
@@ -1356,8 +1362,13 @@ export default function App() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.mainNavTabBtn}
-              onPress={() => handleTabChange("bills", 1)}
+              style={[
+                styles.mainNavTabBtn,
+                activeTab === "bills" && {
+                  backgroundColor: auraColor,
+                },
+              ]}
+              onPress={() => handleTabChange("bills")}
               activeOpacity={0.9}
             >
               <Text
@@ -1371,8 +1382,13 @@ export default function App() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.mainNavTabBtn}
-              onPress={() => handleTabChange("budgets", 2)}
+              style={[
+                styles.mainNavTabBtn,
+                activeTab === "budgets" && {
+                  backgroundColor: auraColor,
+                },
+              ]}
+              onPress={() => handleTabChange("budgets")}
               activeOpacity={0.9}
             >
               <Text
@@ -1386,8 +1402,13 @@ export default function App() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.mainNavTabBtn}
-              onPress={() => handleTabChange("goals", 3)}
+              style={[
+                styles.mainNavTabBtn,
+                activeTab === "goals" && {
+                  backgroundColor: auraColor,
+                },
+              ]}
+              onPress={() => handleTabChange("goals")}
               activeOpacity={0.9}
             >
               <Text
@@ -1401,8 +1422,13 @@ export default function App() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.mainNavTabBtn}
-              onPress={() => handleTabChange("debts", 4)}
+              style={[
+                styles.mainNavTabBtn,
+                activeTab === "debts" && {
+                  backgroundColor: auraColor,
+                },
+              ]}
+              onPress={() => handleTabChange("debts")}
               activeOpacity={0.9}
             >
               <Text
@@ -2845,12 +2871,12 @@ export default function App() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* First-Time Currency Onboarding Modal */}
+      {/* ================= ONBOARDING & SPOTLIGHT TUTORIAL WIZARD ================= */}
       <Modal visible={onboardingModal} animationType="fade" transparent={true}>
         <View
           style={[
             styles.modalOverlay,
-            { backgroundColor: "rgba(7,8,10,0.92)" },
+            { backgroundColor: "rgba(7,8,10,0.96)" },
           ]}
         >
           <View
@@ -2859,75 +2885,586 @@ export default function App() {
               { alignItems: "center", paddingVertical: 32 },
             ]}
           >
-            <Text
-              style={[styles.modalTitle, { fontSize: 22, textAlign: "center" }]}
-            >
-              Welcome to VYBE Finance
-            </Text>
-            <Text
-              style={{
-                color: "#A7ADC0",
-                fontSize: 13,
-                textAlign: "center",
-                marginBottom: 24,
-                lineHeight: 18,
-              }}
-            >
-              Please select your primary base currency to initialize your
-              financial engine.
-            </Text>
+            {/* STEP 1: Welcome & Name */}
+            {onboardStep === 1 && (
+              <View style={{ width: "100%", alignItems: "center" }}>
+                <Text
+                  style={[
+                    styles.modalTitle,
+                    { fontSize: 24, textAlign: "center", color: auraColor },
+                  ]}
+                >
+                  Welcome to VYBE Finance 🚀
+                </Text>
+                <Text
+                  style={{
+                    color: "#A7ADC0",
+                    fontSize: 13,
+                    textAlign: "center",
+                    marginBottom: 24,
+                    lineHeight: 18,
+                  }}
+                >
+                  Your ultimate offline-first financial liquid engine. Let’s
+                  personalize your experience. What is your name?
+                </Text>
+                <TextInput
+                  style={[
+                    styles.input,
+                    { width: "100%", textAlign: "center", fontSize: 16 },
+                  ]}
+                  placeholder="Enter your name (e.g. Subhan Shahid)"
+                  placeholderTextColor="#A7ADC0"
+                  value={userNameInput}
+                  onChangeText={setUserNameInput}
+                />
+                <TouchableOpacity
+                  style={[
+                    styles.saveBtn,
+                    {
+                      backgroundColor: auraColor,
+                      shadowColor: auraColor,
+                      width: "100%",
+                      padding: 16,
+                      borderRadius: 14,
+                      alignItems: "center",
+                      marginTop: 12,
+                    },
+                  ]}
+                  onPress={() => {
+                    if (!userNameInput) return;
+                    setOnboardStep(2);
+                  }}
+                >
+                  <Text style={[styles.saveBtnText, { fontSize: 15 }]}>
+                    Continue ➔
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={{ marginBottom: 24 }}
-            >
-              {["PKR", "USD", "EUR", "GBP", "AED", "CAD", "AUD", "SAR"].map(
-                (cur) => (
-                  <TouchableOpacity
-                    key={cur}
+            {/* STEP 2: Base Currency Selection & Search */}
+            {onboardStep === 2 && (
+              <View style={{ width: "100%" }}>
+                <Text
+                  style={[
+                    styles.modalTitle,
+                    { fontSize: 20, textAlign: "center", color: auraColor },
+                  ]}
+                >
+                  Select Your Base Currency 💱
+                </Text>
+                <Text
+                  style={{
+                    color: "#A7ADC0",
+                    fontSize: 12,
+                    textAlign: "center",
+                    marginBottom: 16,
+                  }}
+                >
+                  Search or pick your primary currency code:
+                </Text>
+
+                <TextInput
+                  style={[styles.input, { marginBottom: 10 }]}
+                  placeholder="Search currency code or country (e.g. USD, EUR)..."
+                  placeholderTextColor="#A7ADC0"
+                  value={currencySearchQuery}
+                  onChangeText={setCurrencySearchQuery}
+                />
+
+                <ScrollView
+                  showsVerticalScrollIndicator={false}
+                  style={{ maxHeight: 200, marginBottom: 16 }}
+                >
+                  {filteredCurrencies.map((c) => (
+                    <TouchableOpacity
+                      key={c.code}
+                      style={[
+                        styles.clientCard,
+                        baseCurrencyChoice === c.code && {
+                          borderColor: auraColor,
+                          backgroundColor: `${auraColor}20`,
+                        },
+                      ]}
+                      onPress={() => setBaseCurrencyChoice(c.code)}
+                    >
+                      <Text style={{ fontSize: 20, marginRight: 10 }}>
+                        {c.flag}
+                      </Text>
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={{
+                            color: "#F5F6FF",
+                            fontWeight: "bold",
+                            fontSize: 13,
+                          }}
+                        >
+                          {c.code} - {c.country}
+                        </Text>
+                      </View>
+                      {baseCurrencyChoice === c.code && (
+                        <Text
+                          style={{
+                            color: auraColor,
+                            fontWeight: "bold",
+                            fontSize: 12,
+                          }}
+                        >
+                          Selected ✓
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+
+                <TouchableOpacity
+                  style={[
+                    styles.saveBtn,
+                    {
+                      backgroundColor: auraColor,
+                      shadowColor: auraColor,
+                      width: "100%",
+                      padding: 16,
+                      borderRadius: 14,
+                      alignItems: "center",
+                    },
+                  ]}
+                  onPress={() => setOnboardStep(3)}
+                >
+                  <Text style={[styles.saveBtnText, { fontSize: 15 }]}>
+                    Next: Pick Aura Theme 🎨
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* STEP 3: Theme Spectrum Picker */}
+            {onboardStep === 3 && (
+              <View style={{ width: "100%", alignItems: "center" }}>
+                <Text
+                  style={[
+                    styles.modalTitle,
+                    { fontSize: 20, textAlign: "center", color: auraColor },
+                  ]}
+                >
+                  Choose Your Aura Theme ✨
+                </Text>
+                <Text
+                  style={{
+                    color: "#A7ADC0",
+                    fontSize: 12,
+                    textAlign: "center",
+                    marginBottom: 20,
+                  }}
+                >
+                  Select a cyberpunk accent glow for your engine:
+                </Text>
+
+                <View
+                  style={{
+                    flexDirection: "row",
+                    flexWrap: "wrap",
+                    justifyContent: "center",
+                    marginBottom: 24,
+                  }}
+                >
+                  {COLOR_SPECTRUM.map((hex) => (
+                    <TouchableOpacity
+                      key={hex}
+                      style={{
+                        width: 50,
+                        height: 50,
+                        borderRadius: 25,
+                        backgroundColor: hex,
+                        margin: 8,
+                        borderWidth: auraColor === hex ? 3 : 1,
+                        borderColor: "#FFFFFF",
+                        shadowColor: hex,
+                        shadowOffset: { width: 0, height: 2 },
+                        shadowOpacity: 0.6,
+                        shadowRadius: 8,
+                      }}
+                      onPress={() => changeAuraTheme(hex)}
+                    />
+                  ))}
+                </View>
+
+                <TouchableOpacity
+                  style={[
+                    styles.saveBtn,
+                    {
+                      backgroundColor: auraColor,
+                      shadowColor: auraColor,
+                      width: "100%",
+                      padding: 16,
+                      borderRadius: 14,
+                      alignItems: "center",
+                    },
+                  ]}
+                  onPress={() => setOnboardStep(4)}
+                >
+                  <Text style={[styles.saveBtnText, { fontSize: 15 }]}>
+                    Next: Terms & Conditions 📜
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* STEP 4: Terms & Conditions */}
+            {onboardStep === 4 && (
+              <View style={{ width: "100%" }}>
+                <Text
+                  style={[
+                    styles.modalTitle,
+                    { fontSize: 18, textAlign: "center", color: auraColor },
+                  ]}
+                >
+                  Terms, Conditions & Legal Disclaimers
+                </Text>
+                <ScrollView
+                  style={{
+                    backgroundColor: "rgba(36,40,58,0.5)",
+                    borderRadius: 12,
+                    padding: 12,
+                    maxHeight: 180,
+                    marginBottom: 14,
+                    borderWidth: 1,
+                    borderColor: "rgba(255,255,255,0.06)",
+                  }}
+                  showsVerticalScrollIndicator={true}
+                >
+                  <Text
+                    style={{ color: "#A7ADC0", fontSize: 11, lineHeight: 16 }}
+                  >
+                    1. **Acceptance of Terms**: By downloading, installing, or
+                    operating VYBE Finance, you agree to comply with these
+                    terms. If you disagree with any provision, cease use
+                    immediately.{"\n\n"}
+                    2. **Nature of Application**: VYBE Finance is built strictly
+                    as a personal finance management tool and a helpful
+                    bookkeeping aid. It operates completely offline and locally
+                    on your device via SQLite storage.{"\n\n"}
+                    3. **Financial Disclaimer & Shiiiii**: This app acts as a
+                    digital helping hand to organize your accounts, generate
+                    invoices, track budgets, and compute savings run-rates.
+                    However, financial markets, currency conversions, and
+                    calculations are provided for informational and convenience
+                    purposes only. If you make mistakes in your manual inputs,
+                    budgeting entries, or calculations, the app can and will
+                    reflect those inputs accordingly. VYBE Finance does not
+                    assume liability for human error, data corruption, or
+                    financial losses incurred.{"\n\n"}
+                    4. **Privacy & Data Security**: Your data stays entirely in
+                    your hands. We do not host cloud servers containing your
+                    bank numbers or transactions. Use biometric locks and JSON
+                    backups responsibly.
+                  </Text>
+                </ScrollView>
+
+                <TouchableOpacity
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    marginBottom: 20,
+                  }}
+                  onPress={() => setTermsAccepted(!termsAccepted)}
+                >
+                  <View
                     style={[
-                      styles.pillChip,
-                      baseCurrencyChoice === cur && {
-                        backgroundColor: auraColor,
+                      styles.themeGearIcon,
+                      {
+                        width: 20,
+                        height: 20,
+                        borderRadius: 6,
                         borderColor: auraColor,
+                        backgroundColor: termsAccepted
+                          ? auraColor
+                          : "transparent",
                       },
-                      { paddingVertical: 12, paddingHorizontal: 18 },
                     ]}
-                    onPress={() => setBaseCurrencyChoice(cur)}
+                  />
+                  <Text
+                    style={{ color: "#F5F6FF", fontSize: 12, marginLeft: 10 }}
+                  >
+                    I have read, understood, and accept the Terms & Conditions.
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.saveBtn,
+                    {
+                      backgroundColor: termsAccepted ? auraColor : "#2A2E43",
+                      shadowColor: auraColor,
+                      width: "100%",
+                      padding: 16,
+                      borderRadius: 14,
+                      alignItems: "center",
+                      opacity: termsAccepted ? 1 : 0.6,
+                    },
+                  ]}
+                  disabled={!termsAccepted}
+                  onPress={() => setOnboardStep(5)}
+                >
+                  <Text style={[styles.saveBtnText, { fontSize: 15 }]}>
+                    Next: Interactive Feature Tutorial 🧭
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* STEP 5: Detailed Spotlight Tutorial */}
+            {onboardStep === 5 && (
+              <View style={{ width: "100%", alignItems: "center" }}>
+                <Text
+                  style={[
+                    styles.modalTitle,
+                    { fontSize: 20, textAlign: "center", color: auraColor },
+                  ]}
+                >
+                  Feature Spotlight Walkthrough 🎯
+                </Text>
+
+                <View
+                  style={{
+                    backgroundColor: "rgba(26,29,41,0.9)",
+                    borderRadius: 16,
+                    padding: 18,
+                    width: "100%",
+                    marginBottom: 20,
+                    borderWidth: 1.5,
+                    borderColor: auraColor,
+                    shadowColor: auraColor,
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.4,
+                    shadowRadius: 12,
+                  }}
+                >
+                  {tutorialStep === 1 && (
+                    <>
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          marginBottom: 8,
+                        }}
+                      >
+                        <Text style={{ fontSize: 22, marginRight: 8 }}>👆</Text>
+                        <Text
+                          style={{
+                            color: auraColor,
+                            fontWeight: "bold",
+                            fontSize: 15,
+                          }}
+                        >
+                          1. Header & Hamburger Drawer
+                        </Text>
+                      </View>
+                      <Text
+                        style={{
+                          color: "#F5F6FF",
+                          fontSize: 12,
+                          lineHeight: 18,
+                          marginBottom: 8,
+                        }}
+                      >
+                        Located at the top-left corner. Tap the menu lines to
+                        access PDF Invoicing, Category Manager, Statement
+                        Exports, JSON Backups, and Biometric locks.
+                      </Text>
+                      <Text
+                        style={{
+                          color: "#48D5AE",
+                          fontSize: 11,
+                          fontWeight: "bold",
+                        }}
+                      >
+                        📍 Pointer: Top-Left Menu Button
+                      </Text>
+                    </>
+                  )}
+                  {tutorialStep === 2 && (
+                    <>
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          marginBottom: 8,
+                        }}
+                      >
+                        <Text style={{ fontSize: 22, marginRight: 8 }}>👆</Text>
+                        <Text
+                          style={{
+                            color: auraColor,
+                            fontWeight: "bold",
+                            fontSize: 15,
+                          }}
+                        >
+                          2. Net Position & Privacy Eye
+                        </Text>
+                      </View>
+                      <Text
+                        style={{
+                          color: "#F5F6FF",
+                          fontSize: 12,
+                          lineHeight: 18,
+                          marginBottom: 8,
+                        }}
+                      >
+                        This card computes your live net worth across all
+                        wallets and banks in real-time. Tap the eye icon 👁️ to
+                        instantly mask your balances in public.
+                      </Text>
+                      <Text
+                        style={{
+                          color: "#48D5AE",
+                          fontSize: 11,
+                          fontWeight: "bold",
+                        }}
+                      >
+                        📍 Pointer: Total Net Position Card
+                      </Text>
+                    </>
+                  )}
+                  {tutorialStep === 3 && (
+                    <>
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          marginBottom: 8,
+                        }}
+                      >
+                        <Text style={{ fontSize: 22, marginRight: 8 }}>👆</Text>
+                        <Text
+                          style={{
+                            color: auraColor,
+                            fontWeight: "bold",
+                            fontSize: 15,
+                          }}
+                        >
+                          3. Fluid Navigation Tabs
+                        </Text>
+                      </View>
+                      <Text
+                        style={{
+                          color: "#F5F6FF",
+                          fontSize: 12,
+                          lineHeight: 18,
+                          marginBottom: 8,
+                        }}
+                      >
+                        Seamlessly switch between Dashboard, Recurring Bills,
+                        Monthly Budgets, Savings Goals, and Debts with one tap.
+                      </Text>
+                      <Text
+                        style={{
+                          color: "#48D5AE",
+                          fontSize: 11,
+                          fontWeight: "bold",
+                        }}
+                      >
+                        📍 Pointer: Middle Navigation Bar
+                      </Text>
+                    </>
+                  )}
+                  {tutorialStep === 4 && (
+                    <>
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          marginBottom: 8,
+                        }}
+                      >
+                        <Text style={{ fontSize: 22, marginRight: 8 }}>👆</Text>
+                        <Text
+                          style={{
+                            color: auraColor,
+                            fontWeight: "bold",
+                            fontSize: 15,
+                          }}
+                        >
+                          4. Quick Action Buttons
+                        </Text>
+                      </View>
+                      <Text
+                        style={{
+                          color: "#F5F6FF",
+                          fontSize: 12,
+                          lineHeight: 18,
+                          marginBottom: 8,
+                        }}
+                      >
+                        Use "+ Add Transaction" to record cash inflows/outflows
+                        with live multi-currency conversion, or "+ Add Client"
+                        to set up counterparties for invoicing.
+                      </Text>
+                      <Text
+                        style={{
+                          color: "#48D5AE",
+                          fontSize: 11,
+                          fontWeight: "bold",
+                        }}
+                      >
+                        📍 Pointer: Main Action Row
+                      </Text>
+                    </>
+                  )}
+                </View>
+
+                <View
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    width: "100%",
+                    gap: 10,
+                  }}
+                >
+                  {tutorialStep > 1 && (
+                    <TouchableOpacity
+                      style={[styles.modalBtn, styles.cancelBtn, { flex: 1 }]}
+                      onPress={() => setTutorialStep((tutorialStep - 1) as any)}
+                    >
+                      <Text style={styles.cancelBtnText}>Back</Text>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity
+                    style={[
+                      styles.saveBtn,
+                      {
+                        backgroundColor: auraColor,
+                        shadowColor: auraColor,
+                        flex: 2,
+                        padding: 14,
+                        borderRadius: 12,
+                        alignItems: "center",
+                      },
+                    ]}
+                    onPress={() => {
+                      if (tutorialStep < 4) {
+                        setTutorialStep((tutorialStep + 1) as any);
+                      } else {
+                        completeOnboarding();
+                      }
+                    }}
                   >
                     <Text
-                      style={[
-                        styles.pillChipText,
-                        baseCurrencyChoice === cur && styles.pillChipTextActive,
-                        { fontSize: 14 },
-                      ]}
+                      style={{
+                        color: "#07080A",
+                        fontWeight: "bold",
+                        fontSize: 14,
+                      }}
                     >
-                      {cur}
+                      {tutorialStep === 4
+                        ? "Launch VYBE Engine 🚀"
+                        : "Next Pointer ➔"}
                     </Text>
                   </TouchableOpacity>
-                ),
-              )}
-            </ScrollView>
-
-            <TouchableOpacity
-              style={[
-                styles.saveBtn,
-                {
-                  backgroundColor: auraColor,
-                  shadowColor: auraColor,
-                  width: "100%",
-                  padding: 16,
-                  borderRadius: 14,
-                  alignItems: "center",
-                },
-              ]}
-              onPress={completeOnboarding}
-            >
-              <Text style={[styles.saveBtnText, { fontSize: 15 }]}>
-                Initialize VYBE Engine 🚀
-              </Text>
-            </TouchableOpacity>
+                </View>
+              </View>
+            )}
           </View>
         </View>
       </Modal>
@@ -3767,7 +4304,7 @@ export default function App() {
         </View>
       </Modal>
 
-      {/* Savings Goal Create/Edit Modal with Selector Picker */}
+      {/* Savings Goal Create/Edit Modal */}
       <Modal visible={goalModal} animationType="slide" transparent={true}>
         <View style={styles.modalOverlay}>
           <View
@@ -4026,7 +4563,7 @@ export default function App() {
         </View>
       </Modal>
 
-      {/* Add Debt / Loan Modal with Selector Picker */}
+      {/* Add Debt / Loan Modal */}
       <Modal visible={debtModal} animationType="slide" transparent={true}>
         <View style={styles.modalOverlay}>
           <View
@@ -4274,7 +4811,7 @@ export default function App() {
         </View>
       </Modal>
 
-      {/* Frosted Glass Drawer (Includes Theme, Categories, Invoices, Backups, Biometrics) */}
+      {/* Frosted Glass Drawer */}
       <Modal visible={menuModal} animationType="none" transparent={true}>
         <View style={styles.drawerBackdrop}>
           <TouchableOpacity
@@ -4440,56 +4977,28 @@ export default function App() {
               </Text>
             </TouchableOpacity>
 
-            {/* Polished Cyberpunk Biometric Security Tile */}
-            <View style={styles.biometricTile}>
-              <View
-                style={{ flexDirection: "row", alignItems: "center", flex: 1 }}
-              >
-                <View
-                  style={[
-                    styles.biometricIconCircle,
-                    { borderColor: auraColor },
-                  ]}
-                >
-                  <Text style={{ fontSize: 14 }}>🔒</Text>
-                </View>
-                <View style={{ marginLeft: 10, flex: 1 }}>
-                  <Text style={styles.biometricTitle}>Biometric Lock</Text>
-                  <Text style={styles.biometricSub}>Fingerprint / Face ID</Text>
-                </View>
+            {/* Biometric-secured Factory Reset */}
+            <TouchableOpacity
+              style={[
+                styles.drawerNavItem,
+                {
+                  borderColor: "rgba(255,119,143,0.3)",
+                  backgroundColor: "rgba(255,119,143,0.06)",
+                },
+              ]}
+              activeOpacity={0.8}
+              onPress={() => {
+                closeMenu();
+                handleClearAllData();
+              }}
+            >
+              <View style={styles.monoIconBox}>
+                <Text style={{ fontSize: 14 }}>⚠️</Text>
               </View>
-              <Switch
-                trackColor={{ false: "#1A1D29", true: auraColor }}
-                thumbColor={biometricEnabled ? "#07080A" : "#A7ADC0"}
-                ios_backgroundColor="#1A1D29"
-                value={biometricEnabled}
-                onValueChange={async (val) => {
-                  if (val) {
-                    const compatible =
-                      await LocalAuthentication.hasHardwareAsync();
-                    const enrolled =
-                      await LocalAuthentication.isEnrolledAsync();
-                    if (!compatible || !enrolled) {
-                      setErrorModal({
-                        visible: true,
-                        message:
-                          "No biometric security (Fingerprint/Face ID) or passcode enrolled on this device.",
-                      });
-                      return;
-                    }
-                    const res = await LocalAuthentication.authenticateAsync({
-                      promptMessage: "Enable Biometric Protection",
-                    });
-                    if (res.success) {
-                      setBiometricEnabled(true);
-                      triggerCelebration();
-                    }
-                  } else {
-                    setBiometricEnabled(false);
-                  }
-                }}
-              />
-            </View>
+              <Text style={[styles.drawerNavText, { color: "#FF778F" }]}>
+                Clear All Data (Biometric)
+              </Text>
+            </TouchableOpacity>
 
             <View style={{ marginTop: "auto" }}>
               <TouchableOpacity
@@ -4578,10 +5087,7 @@ export default function App() {
                   style={{ marginBottom: 8 }}
                 >
                   {["2024", "2025", "2026", "2027"].map((yr) => {
-                    const active =
-                      exportRangeTab === "start"
-                        ? exportStartDate.startsWith(yr)
-                        : exportEndDate.startsWith(yr);
+                    const active = exportStartDate.startsWith(yr);
                     return (
                       <TouchableOpacity
                         key={yr}
@@ -4592,15 +5098,7 @@ export default function App() {
                             borderColor: auraColor,
                           },
                         ]}
-                        onPress={() => {
-                          if (exportRangeTab === "start") {
-                            setExportStartDate(
-                              `${yr}${exportStartDate.slice(4)}`,
-                            );
-                          } else {
-                            setExportEndDate(`${yr}${exportEndDate.slice(4)}`);
-                          }
-                        }}
+                        onPress={() => setExportStartDate(`${yr}-10-01`)}
                       >
                         <Text
                           style={[
@@ -4654,7 +5152,7 @@ export default function App() {
         </View>
       </Modal>
 
-      {/* Insufficient Balance / Error Modal */}
+      {/* Error Modal */}
       <Modal
         visible={errorModal.visible}
         animationType="fade"
@@ -4708,7 +5206,7 @@ export default function App() {
         </View>
       </Modal>
 
-      {/* Confirmation Dialog Modal */}
+      {/* Confirmation Modal */}
       <Modal
         visible={confirmModal.visible}
         animationType="fade"
@@ -4827,7 +5325,7 @@ export default function App() {
         </View>
       </Modal>
 
-      {/* Transaction & Transfer Modal */}
+      {/* Transaction Modal */}
       <Modal visible={txModal} animationType="slide" transparent={true}>
         <View style={styles.modalOverlay}>
           <View
@@ -5359,33 +5857,18 @@ const styles = StyleSheet.create({
 
   mainNavTabs: {
     flexDirection: "row",
-    backgroundColor: "rgba(26, 29, 41, 0.55)",
+    backgroundColor: "rgba(26, 29, 41, 0.75)",
     borderRadius: 16,
     padding: 4,
     marginBottom: 16,
     borderWidth: 1,
-    position: "relative",
-    overflow: "hidden",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-  },
-  slidingGlassIndicator: {
-    position: "absolute",
-    top: 4,
-    bottom: 4,
-    width: (screenWidth - 56) / 5,
-    borderRadius: 12,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.7,
-    shadowRadius: 16,
+    borderColor: "rgba(255,255,255,0.08)",
   },
   mainNavTabBtn: {
     flex: 1,
     paddingVertical: 12,
     alignItems: "center",
     borderRadius: 12,
-    zIndex: 2,
   },
   mainNavTabText: { color: "#A7ADC0", fontSize: 10, fontWeight: "600" },
   mainNavTabTextActive: { color: "#07080A", fontWeight: "bold" },
@@ -5468,32 +5951,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255, 119, 143, 0.2)",
   },
-
-  biometricTile: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(26, 29, 41, 0.65)",
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 14,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.06)",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-  },
-  biometricIconCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: "rgba(255,255,255,0.05)",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-  },
-  biometricTitle: { color: "#F5F6FF", fontSize: 13, fontWeight: "700" },
-  biometricSub: { color: "#A7ADC0", fontSize: 10, marginTop: 1 },
 
   monoIconBox: {
     width: 18,
@@ -5792,7 +6249,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.06)",
   },
-  pillChipActive: {},
   pillChipText: { color: "#A7ADC0", fontSize: 11 },
   pillChipTextActive: { color: "#07080A", fontWeight: "bold" },
 
@@ -5804,6 +6260,6 @@ const styles = StyleSheet.create({
   modalBtn: { flex: 1, padding: 14, borderRadius: 12, alignItems: "center" },
   cancelBtn: { backgroundColor: "rgba(36,40,58,0.7)", marginRight: 8 },
   cancelBtnText: { color: "#A7ADC0", fontWeight: "600", fontSize: 13 },
-  saveBtn: { marginLeft: 8 },
+  saveBtn: { marginLeft: 0 },
   saveBtnText: { color: "#07080A", fontWeight: "bold", fontSize: 13 },
 });
