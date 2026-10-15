@@ -123,7 +123,7 @@ export function initDatabase() {
       localStorage.setItem("vybe_invoice_history", JSON.stringify([]));
     }
     if (!localStorage.getItem("vybe_aura_theme")) {
-      localStorage.setItem("vybe_aura_theme", "#8279FF");
+      localStorage.setItem("vybe_aura_theme", "#8575FF");
     }
     return;
   }
@@ -280,15 +280,15 @@ export function setBaseCurrency(code: string) {
 
 export function getAuraTheme(): string {
   if (Platform.OS === "web") {
-    return localStorage.getItem("vybe_aura_theme") || "#8279FF";
+    return localStorage.getItem("vybe_aura_theme") || "#8575FF";
   } else {
     try {
       const res = db.getAllSync(
         `SELECT value FROM settings WHERE key = 'aura_theme';`,
       ) as any[];
-      return res.length > 0 ? res[0].value : "#8279FF";
+      return res.length > 0 ? res[0].value : "#8575FF";
     } catch (e) {
-      return "#8279FF";
+      return "#8575FF";
     }
   }
 }
@@ -1190,4 +1190,108 @@ export function restoreFullBackupJSON(jsonData: any) {
   } else {
     // SQLite execution blocks for native restoration
   }
+}
+
+/** Persisted visual preferences. Kept separate from financial records. */
+export type VybeThemePreferences = {
+  mode: "dark" | "light" | "system";
+  primaryAccent: string;
+  secondaryAccent: string;
+  auraIntensity: "off" | "subtle" | "balanced" | "vivid";
+  glassIntensity: "low" | "medium" | "high";
+};
+
+export const DEFAULT_VYBE_THEME: VybeThemePreferences = {
+  mode: "dark",
+  primaryAccent: "#8575FF",
+  secondaryAccent: "#36D9FF",
+  auraIntensity: "balanced",
+  glassIntensity: "medium",
+};
+
+export function getThemePreferences(): VybeThemePreferences {
+  try {
+    const raw =
+      Platform.OS === "web"
+        ? localStorage.getItem("vybe_theme_preferences")
+        : db.getFirstSync(
+            `SELECT value FROM settings WHERE key = 'theme_preferences';`,
+          )?.value;
+    if (!raw) return DEFAULT_VYBE_THEME;
+    const parsed =
+      typeof raw === "string" ? JSON.parse(raw) : JSON.parse(String(raw));
+    return {
+      ...DEFAULT_VYBE_THEME,
+      ...parsed,
+      mode: ["dark", "light", "system"].includes(parsed.mode)
+        ? parsed.mode
+        : "dark",
+      auraIntensity: ["off", "subtle", "balanced", "vivid"].includes(
+        parsed.auraIntensity,
+      )
+        ? parsed.auraIntensity
+        : "balanced",
+      glassIntensity: ["low", "medium", "high"].includes(parsed.glassIntensity)
+        ? parsed.glassIntensity
+        : "medium",
+    };
+  } catch {
+    return DEFAULT_VYBE_THEME;
+  }
+}
+
+export function setThemePreferences(preferences: VybeThemePreferences): void {
+  const serialized = JSON.stringify(preferences);
+  if (Platform.OS === "web") {
+    localStorage.setItem("vybe_theme_preferences", serialized);
+  } else if (db) {
+    db.runSync(
+      `INSERT OR REPLACE INTO settings (key, value) VALUES ('theme_preferences', ?);`,
+      [serialized],
+    );
+  }
+}
+
+/**
+ * Deletes local app data only. It intentionally does not delete cloud accounts
+ * or remote data. The caller must authenticate and obtain explicit confirmation.
+ */
+export function clearAllLocalFinancialData(): void {
+  if (Platform.OS === "web") {
+    const keys = [
+      "vybe_profiles",
+      "vybe_accounts",
+      "vybe_clients",
+      "vybe_transactions",
+      "vybe_recurring_bills",
+      "vybe_categories",
+      "vybe_budgets",
+      "vybe_user_currencies",
+      "vybe_savings_goals",
+      "vybe_debts",
+      "vybe_invoice_history",
+      "vybe_aura_theme",
+      "vybe_base_currency",
+      "vybe_theme_preferences",
+    ];
+    keys.forEach((key) => localStorage.removeItem(key));
+    return;
+  }
+  if (!db) throw new Error("Local database is unavailable.");
+  db.withTransactionSync(() => {
+    db.execSync(`
+      DELETE FROM transactions;
+      DELETE FROM recurring_bills;
+      DELETE FROM invoice_history;
+      DELETE FROM debts;
+      DELETE FROM savings_goals;
+      DELETE FROM budgets;
+      DELETE FROM categories;
+      DELETE FROM clients;
+      DELETE FROM accounts;
+      DELETE FROM profiles;
+      DELETE FROM user_currencies;
+      DELETE FROM settings;
+    `);
+  });
 }

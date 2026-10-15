@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   StyleSheet,
   Text,
@@ -10,11 +10,11 @@ import {
   Modal,
   StatusBar,
   Animated,
-  Dimensions,
   Platform,
   KeyboardAvoidingView,
-  Switch,
   Alert,
+  Image,
+  Switch,
 } from "react-native";
 import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system/legacy";
@@ -27,6 +27,8 @@ import {
 } from "./src/utils/pdfExport";
 import * as DocumentPicker from "expo-document-picker";
 import * as LocalAuthentication from "expo-local-authentication";
+import * as Haptics from "expo-haptics";
+import { Ionicons, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import {
   initDatabase,
   getAccounts,
@@ -67,6 +69,9 @@ import {
   deleteDebt,
   getAuraTheme,
   setAuraTheme,
+  getThemePreferences,
+  setThemePreferences,
+  clearAllLocalFinancialData,
   getInvoiceHistory,
   saveInvoiceHistory,
   getLiveRate,
@@ -75,6 +80,38 @@ import {
   exportFullBackupJSON,
   restoreFullBackupJSON,
 } from "./src/db/database";
+
+// ================= MASTER REFINEMENT DESIGN TOKENS =================
+const PRESET_THEMES = {
+  vybeOriginal: {
+    name: "Aura Cosmic",
+    primary: "#8B5CF6",
+    secondary: "#3B82F6",
+  },
+  cyberpunk: { name: "Cyber Neon", primary: "#FF2A85", secondary: "#00F0FF" },
+  aurora: { name: "Aurora Mint", primary: "#00FFCC", secondary: "#7000FF" },
+  solar: { name: "Solar Flare", primary: "#FFB800", secondary: "#FF4D00" },
+  emerald: { name: "Emerald Pro", primary: "#2EE59D", secondary: "#00C4FF" },
+  arctic: { name: "Arctic Frost", primary: "#38EF7D", secondary: "#11998E" },
+};
+
+const COLOR_SPECTRUM = [
+  "#8B5CF6",
+  "#3B82F6",
+  "#22D3EE",
+  "#2EE59D",
+  "#FF2A85",
+  "#FFB800",
+  "#FF6B4A",
+  "#A55EEA",
+  "#45AAF2",
+  "#2BCBBA",
+  "#FA8231",
+  "#00F0FF",
+];
+
+const VYBE_LOGO = require("./assets/adaptive-icon.png");
+const VYBE_ICON_BADGE = require("./assets/icon.png");
 
 const WORLD_CURRENCIES = [
   { code: "USD", country: "United States", flag: "🇺🇸" },
@@ -98,19 +135,148 @@ const WORLD_CURRENCIES = [
   { code: "BHD", country: "Bahrain", flag: "🇧🇭" },
 ].sort((a, b) => a.code.localeCompare(b.code));
 
-const COLOR_SPECTRUM = [
-  "#8279FF",
-  "#48D5AE",
-  "#54A9FF",
-  "#FF778F",
-  "#F1C40F",
-  "#FF5733",
-  "#9b59b6",
-  "#3498db",
-  "#1abc9c",
-  "#e67e22",
-  "#e74c3c",
-];
+const BrandMark = ({
+  size = 34,
+  auraColor = "#8B5CF6",
+  showWordmark = true,
+  isDark = true,
+}: {
+  size?: number;
+  auraColor?: string;
+  showWordmark?: boolean;
+  isDark?: boolean;
+}) => (
+  <View style={styles.brandMarkContainer}>
+    <View
+      style={[
+        styles.brandLogoWrapper,
+        {
+          width: size,
+          height: size,
+          borderRadius: size * 0.3,
+          borderColor: `${auraColor}55`,
+          shadowColor: auraColor,
+          backgroundColor: isDark ? "#11121D" : "#EAEBEE",
+        },
+      ]}
+    >
+      <Image
+        source={VYBE_LOGO}
+        style={{ width: size * 0.78, height: size * 0.78 }}
+        resizeMode="contain"
+      />
+    </View>
+    {showWordmark && (
+      <View style={{ marginLeft: 11 }}>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <Text
+            style={[
+              styles.brandWordmark,
+              { color: isDark ? "#F8FAFC" : "#11121D" },
+            ]}
+          >
+            VYBE
+          </Text>
+          <View
+            style={[
+              styles.brandTagPill,
+              {
+                backgroundColor: `${auraColor}25`,
+                borderColor: `${auraColor}66`,
+              },
+            ]}
+          >
+            <Text style={[styles.brandTagText, { color: auraColor }]}>
+              MANAGER
+            </Text>
+          </View>
+        </View>
+        <Text
+          style={[
+            styles.brandSubword,
+            { color: isDark ? "#A1A1B5" : "#475569" },
+          ]}
+        >
+          LIQUID FINANCIAL ENGINE
+        </Text>
+      </View>
+    )}
+  </View>
+);
+
+const EmptyState = ({
+  title,
+  subtitle,
+  actionLabel,
+  onAction,
+  auraColor,
+  isDark = true,
+}: {
+  title: string;
+  subtitle: string;
+  actionLabel?: string;
+  onAction?: () => void;
+  auraColor: string;
+  isDark?: boolean;
+}) => (
+  <View
+    style={[
+      styles.emptyStateBox,
+      {
+        borderColor: `${auraColor}30`,
+        backgroundColor: isDark ? "#11121D" : "#FFFFFF",
+      },
+    ]}
+  >
+    <View
+      style={[
+        styles.emptyLogoCircle,
+        {
+          backgroundColor: `${auraColor}15`,
+          borderColor: `${auraColor}40`,
+        },
+      ]}
+    >
+      <Image
+        source={VYBE_LOGO}
+        style={{ width: 32, height: 32, opacity: 0.85 }}
+        resizeMode="contain"
+      />
+    </View>
+    <Text
+      style={[
+        styles.emptyStateTitle,
+        { color: isDark ? "#F8FAFC" : "#11121D" },
+      ]}
+    >
+      {title}
+    </Text>
+    <Text
+      style={[styles.emptyStateSub, { color: isDark ? "#A1A1B5" : "#686B7C" }]}
+    >
+      {subtitle}
+    </Text>
+    {actionLabel && onAction && (
+      <TouchableOpacity
+        style={[
+          styles.emptyStateBtn,
+          { backgroundColor: `${auraColor}20`, borderColor: auraColor },
+        ]}
+        onPress={() => {
+          try {
+            Haptics.selectionAsync();
+          } catch (e) {}
+          onAction();
+        }}
+        activeOpacity={0.8}
+      >
+        <Text style={[styles.emptyStateBtnText, { color: auraColor }]}>
+          {actionLabel}
+        </Text>
+      </TouchableOpacity>
+    )}
+  </View>
+);
 
 export default function App() {
   const [accounts, setAccounts] = useState<any[]>([]);
@@ -130,13 +296,63 @@ export default function App() {
     "AED",
   ]);
 
-  const [activeTab, setActiveTab] = useState<
-    "dashboard" | "bills" | "budgets" | "goals" | "debts"
-  >("dashboard");
+  const [primaryNav, setPrimaryNav] = useState<
+    "home" | "activity" | "insights" | "accounts" | "more"
+  >("home");
+  const [moreSubTab, setMoreSubTab] = useState<
+    "hub" | "bills" | "budgets" | "goals" | "debts" | "clients"
+  >("hub");
 
-  const [auraColor, setAuraColor] = useState("#8279FF");
+  // Aura Engine V2 States
+  const [isDarkMode, setIsDarkMode] = useState(true);
+  const [auraColor, setAuraColor] = useState("#8B5CF6");
+  const [auraSecondaryColor, setAuraSecondaryColor] = useState("#3B82F6");
+  const [auraIntensity, setAuraIntensity] = useState<
+    "off" | "subtle" | "balanced" | "vivid"
+  >("balanced");
+  const [glassIntensity, setGlassIntensity] = useState<
+    "low" | "medium" | "high"
+  >("medium");
+  const [primaryHexInput, setPrimaryHexInput] = useState("#8B5CF6");
+  const [secondaryHexInput, setSecondaryHexInput] = useState("#3B82F6");
   const [themeModal, setThemeModal] = useState(false);
-  const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [confirmPhraseInput, setConfirmPhraseInput] = useState("");
+  const confirmPhraseRef = useRef("");
+
+  // App Lock Security State
+  const [appLockEnabled, setAppLockEnabled] = useState(false);
+
+  // Master Refinement Theme Palette
+  const THEME = useMemo(
+    () => ({
+      bg: isDarkMode ? "#09090F" : "#F1F3F9",
+      surface: isDarkMode ? "#11121D" : "#FFFFFF",
+      surfaceElevated: isDarkMode ? "#191A2A" : "#E2E5EE",
+      surfaceGlass: isDarkMode
+        ? "rgba(17, 18, 29, 0.88)"
+        : "rgba(255, 255, 255, 0.92)",
+      primaryViolet: auraColor,
+      electricCyan: auraSecondaryColor,
+      textPrimary: isDarkMode ? "#F8FAFC" : "#0F172A",
+      textSecondary: isDarkMode ? "#A1A1B5" : "#475569",
+      textMuted: isDarkMode ? "#64748B" : "#94A3B8",
+      borderSubtle: `${auraColor}30`,
+      borderCard: isDarkMode
+        ? "rgba(255, 255, 255, 0.08)"
+        : "rgba(15, 23, 42, 0.10)",
+      positive: "#10B981",
+      negative: "#F43F5E",
+      warning: "#F59E0B",
+      radius: {
+        sm: 10,
+        md: 14,
+        lg: 20,
+        xl: 26,
+        pill: 999,
+      },
+    }),
+    [isDarkMode, auraColor, auraSecondaryColor],
+  );
 
   const [onboardingModal, setOnboardingModal] = useState(false);
   const [onboardStep, setOnboardStep] = useState<1 | 2 | 3 | 4 | 5>(1);
@@ -201,6 +417,10 @@ export default function App() {
   const [selectedAccountFilter, setSelectedAccountFilter] = useState<
     number | null
   >(null);
+  const [ledgerSearchQuery, setLedgerSearchQuery] = useState("");
+  const [ledgerTypeFilter, setLedgerTypeFilter] = useState<
+    "all" | "in" | "out" | "transfer"
+  >("all");
   const [timeFilter, setTimeFilter] = useState<
     "all" | "week" | "month" | "last_month" | "year" | "custom"
   >("all");
@@ -208,8 +428,17 @@ export default function App() {
   const [startDate, setStartDate] = useState("2026-01-01");
   const [endDate, setEndDate] = useState("2026-12-31");
 
+  // Statement Export Advanced Range Selectors
+  const [statementRangeTab, setStatementRangeTab] = useState<"start" | "end">(
+    "start",
+  );
   const [exportStartDate, setExportStartDate] = useState("2026-10-01");
   const [exportEndDate, setExportEndDate] = useState("2026-10-31");
+
+  // Recurring Bill Advanced Range Selectors
+  const [billRangeTab, setBillRangeTab] = useState<"start" | "end">("start");
+  const [billStartDate, setBillStartDate] = useState("2026-10-01");
+  const [billEndDate, setBillEndDate] = useState("2026-12-31");
 
   const [goalYear, setGoalYear] = useState("2026");
   const [goalMonth, setGoalMonth] = useState("12");
@@ -267,10 +496,13 @@ export default function App() {
   const [debtAmount, setDebtAmount] = useState("");
   const [debtAccountId, setDebtAccountId] = useState<number>(1);
 
-  const slideAnim = useRef(new Animated.Value(-300)).current;
+  // Animations
+  const slideAnim = useRef(new Animated.Value(-310)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  const auraGlowAnim = useRef(new Animated.Value(0.5)).current;
+  const screenFadeAnim = useRef(new Animated.Value(1)).current;
   const undoProgressAnim = useRef(new Animated.Value(1)).current;
+  const insightsWelcomeAnim = useRef(new Animated.Value(0)).current;
+  const barAnimProgress = useRef(new Animated.Value(0)).current;
   const accountScaleAnims = useRef<{ [key: number]: Animated.Value }>(
     {},
   ).current;
@@ -299,27 +531,50 @@ export default function App() {
     "Other Income",
   ];
 
-  const allExpenseCategories = Array.from(
-    new Set([
-      ...defaultExpenseCategories,
-      ...customCategories.filter((c) => c.type === "out").map((c) => c.name),
-    ]),
+  const allExpenseCategories = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          ...defaultExpenseCategories,
+          ...customCategories
+            .filter((c) => c.type === "out")
+            .map((c) => c.name),
+        ]),
+      ),
+    [customCategories],
   );
-  const allIncomeCategories = Array.from(
-    new Set([
-      ...defaultIncomeCategories,
-      ...customCategories.filter((c) => c.type === "in").map((c) => c.name),
-    ]),
+
+  const allIncomeCategories = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          ...defaultIncomeCategories,
+          ...customCategories.filter((c) => c.type === "in").map((c) => c.name),
+        ]),
+      ),
+    [customCategories],
   );
 
   useEffect(() => {
     initDatabase();
     loadData();
-    startAuraAmbientGlow();
 
     const savedTheme = getAuraTheme();
-    if (savedTheme) {
-      setAuraColor(savedTheme);
+    const savedPreferences = getThemePreferences();
+    const activePrimary =
+      savedPreferences.primaryAccent || savedTheme || "#8B5CF6";
+    const activeSecondary = savedPreferences.secondaryAccent || "#3B82F6";
+
+    setAuraColor(activePrimary);
+    setPrimaryHexInput(activePrimary);
+    setAuraSecondaryColor(activeSecondary);
+    setSecondaryHexInput(activeSecondary);
+    setAuraIntensity(savedPreferences.auraIntensity);
+    setGlassIntensity(savedPreferences.glassIntensity);
+    if (savedPreferences.mode === "light") {
+      setIsDarkMode(false);
+    } else {
+      setIsDarkMode(true);
     }
 
     const baseCur = getBaseCurrency();
@@ -330,6 +585,26 @@ export default function App() {
       setCurrency(baseCur);
     }
   }, []);
+
+  useEffect(() => {
+    if (primaryNav === "insights") {
+      insightsWelcomeAnim.setValue(0);
+      barAnimProgress.setValue(0);
+      Animated.parallel([
+        Animated.spring(insightsWelcomeAnim, {
+          toValue: 1,
+          friction: 7,
+          tension: 50,
+          useNativeDriver: true,
+        }),
+        Animated.timing(barAnimProgress, {
+          toValue: 1,
+          duration: 750,
+          useNativeDriver: false,
+        }),
+      ]).start();
+    }
+  }, [primaryNav]);
 
   useEffect(() => {
     if (currency !== "PKR") {
@@ -360,62 +635,103 @@ export default function App() {
     });
   };
 
-  const startAuraAmbientGlow = () => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(auraGlowAnim, {
-          toValue: 1,
-          duration: 1600,
-          useNativeDriver: true,
-        }),
-        Animated.timing(auraGlowAnim, {
-          toValue: 0.45,
-          duration: 1600,
-          useNativeDriver: true,
-        }),
-      ]),
-    ).start();
+  const animateScreenTransition = () => {
+    screenFadeAnim.setValue(0.88);
+    Animated.timing(screenFadeAnim, {
+      toValue: 1,
+      duration: 180,
+      useNativeDriver: true,
+    }).start();
   };
 
-  const triggerAuraSurge = () => {
-    Animated.sequence([
-      Animated.timing(auraGlowAnim, {
-        toValue: 1,
-        duration: 80,
-        useNativeDriver: true,
-      }),
-      Animated.timing(auraGlowAnim, {
-        toValue: 0.55,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-    ]).start();
+  const handlePrimaryNavChange = (
+    tab: "home" | "activity" | "insights" | "accounts" | "more",
+  ) => {
+    try {
+      Haptics.selectionAsync();
+    } catch (e) {}
+    setPrimaryNav(tab);
+    if (tab !== "more") {
+      setMoreSubTab("hub");
+    }
+    animateScreenTransition();
   };
 
-  const changeAuraTheme = (hex: string) => {
-    setAuraColor(hex);
-    setAuraTheme(hex);
-    triggerAuraSurge();
+  const openMoreFeature = (
+    sub: "hub" | "bills" | "budgets" | "goals" | "debts" | "clients",
+  ) => {
+    try {
+      Haptics.selectionAsync();
+    } catch (e) {}
+    setPrimaryNav("more");
+    setMoreSubTab(sub);
+    animateScreenTransition();
+  };
+
+  const persistVisualPreferences = (
+    overrides: Partial<ReturnType<typeof getThemePreferences>> = {},
+  ) => {
+    setThemePreferences({
+      ...getThemePreferences(),
+      primaryAccent: auraColor,
+      secondaryAccent: auraSecondaryColor,
+      auraIntensity,
+      glassIntensity,
+      mode: isDarkMode ? "dark" : "light",
+      ...overrides,
+    });
+  };
+
+  const isValidHex = (value: string) =>
+    /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value.trim());
+  const normalizeHex = (value: string) => {
+    const raw = value.trim().replace(/^#/, "").toUpperCase();
+    return `#${
+      raw.length === 3
+        ? raw
+            .split("")
+            .map((p) => p + p)
+            .join("")
+        : raw
+    }`;
+  };
+
+  const changeAuraTheme = (primaryHex: string, secondaryHex?: string) => {
+    if (!isValidHex(primaryHex)) return;
+    const normalizedPrimary = normalizeHex(primaryHex);
+    const normalizedSecondary =
+      secondaryHex && isValidHex(secondaryHex)
+        ? normalizeHex(secondaryHex)
+        : auraSecondaryColor;
+
+    try {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e) {}
+
+    setAuraColor(normalizedPrimary);
+    setPrimaryHexInput(normalizedPrimary);
+    setAuraSecondaryColor(normalizedSecondary);
+    setSecondaryHexInput(normalizedSecondary);
+    setAuraTheme(normalizedPrimary);
+    persistVisualPreferences({
+      primaryAccent: normalizedPrimary,
+      secondaryAccent: normalizedSecondary,
+    });
+    triggerCelebration();
   };
 
   const pickRandomTheme = () => {
     const randomHex =
       COLOR_SPECTRUM[Math.floor(Math.random() * COLOR_SPECTRUM.length)];
-    changeAuraTheme(randomHex);
-  };
-
-  const handleTabChange = (
-    tab: "dashboard" | "bills" | "budgets" | "goals" | "debts",
-  ) => {
-    triggerAuraSurge();
-    setActiveTab(tab);
+    const randomHex2 =
+      COLOR_SPECTRUM[Math.floor(Math.random() * COLOR_SPECTRUM.length)];
+    changeAuraTheme(randomHex, randomHex2);
   };
 
   const handleAccountPressIn = (id: number) => {
-    triggerAuraSurge();
     if (accountScaleAnims[id]) {
       Animated.spring(accountScaleAnims[id], {
-        toValue: 0.95,
+        toValue: 0.97,
         useNativeDriver: true,
       }).start();
     }
@@ -425,17 +741,20 @@ export default function App() {
     if (accountScaleAnims[id]) {
       Animated.spring(accountScaleAnims[id], {
         toValue: 1,
-        friction: 3,
+        friction: 4,
         useNativeDriver: true,
       }).start();
     }
   };
 
   const openMenu = () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (e) {}
     setMenuModal(true);
     Animated.spring(slideAnim, {
       toValue: 0,
-      tension: 70,
+      tension: 75,
       friction: 12,
       useNativeDriver: true,
     }).start();
@@ -443,30 +762,32 @@ export default function App() {
 
   const closeMenu = () => {
     Animated.timing(slideAnim, {
-      toValue: -300,
-      duration: 200,
+      toValue: -310,
+      duration: 180,
       useNativeDriver: true,
     }).start(() => setMenuModal(false));
   };
 
   const triggerCelebration = () => {
-    triggerAuraSurge();
     Animated.sequence([
       Animated.timing(pulseAnim, {
-        toValue: 1.06,
-        duration: 120,
+        toValue: 1.03,
+        duration: 110,
         useNativeDriver: true,
       }),
       Animated.timing(pulseAnim, {
         toValue: 1,
-        duration: 120,
+        duration: 140,
         useNativeDriver: true,
       }),
     ]).start();
   };
 
   const triggerVictoryCelebration = (title: string) => {
-    triggerAuraSurge();
+    try {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e) {}
+    triggerCelebration();
     setVictoryModal({ visible: true, title });
   };
 
@@ -490,34 +811,86 @@ export default function App() {
     triggerCelebration();
   };
 
+  const handleToggleAppLock = async (value: boolean) => {
+    if (value) {
+      try {
+        const compatible = await LocalAuthentication.hasHardwareAsync();
+        const enrolled = await LocalAuthentication.isEnrolledAsync();
+        if (!compatible || !enrolled) {
+          Alert.alert(
+            "Biometrics Unavailable",
+            "Your device does not have biometrics enrolled. App lock cannot be enabled.",
+          );
+          return;
+        }
+        const res = await LocalAuthentication.authenticateAsync({
+          promptMessage: "Authenticate to enable VYBE App Lock",
+        });
+        if (res.success) {
+          setAppLockEnabled(true);
+          try {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          } catch (e) {}
+        }
+      } catch (e) {
+        console.log("App lock auth error:", e);
+      }
+    } else {
+      setAppLockEnabled(false);
+    }
+  };
+
   const handleClearAllData = async () => {
     try {
       const compatible = await LocalAuthentication.hasHardwareAsync();
       const enrolled = await LocalAuthentication.isEnrolledAsync();
 
-      if (compatible && enrolled) {
-        const res = await LocalAuthentication.authenticateAsync({
-          promptMessage: "Authenticate to Wipe All Data",
-        });
-        if (!res.success) {
-          return;
-        }
+      if (!compatible || !enrolled) {
+        Alert.alert(
+          "Authentication Required",
+          "Please configure device biometrics to authorize vault reset.",
+        );
+        return;
       }
 
+      const res = await LocalAuthentication.authenticateAsync({
+        promptMessage: "Authenticate to Wipe All Local Vault Data",
+      });
+      if (!res.success) {
+        return;
+      }
+
+      setConfirmPhraseInput("");
+      confirmPhraseRef.current = "";
       setConfirmModal({
         visible: true,
-        title: "⚠️ Factory Reset / Wipe All Data?",
+        title: "⚠️ Clear Local Financial Data",
         message:
-          "This action will permanently delete all local accounts, transactions, clients, budgets, and settings. Are you 100% sure?",
+          'This will permanently erase all local accounts, transactions, and settings from device storage. Type "CLEAR VYBE" below to confirm.',
         onConfirm: () => {
-          if (Platform.OS === "web") {
-            localStorage.clear();
-            window.location.reload();
-          } else {
-            initDatabase();
+          if (confirmPhraseRef.current.trim() !== "CLEAR VYBE") {
+            Alert.alert(
+              "Confirmation Mismatched",
+              'You must type exactly "CLEAR VYBE" to execute data clearing.',
+            );
+            return;
+          }
+          try {
+            clearAllLocalFinancialData();
+            setConfirmPhraseInput("");
+            confirmPhraseRef.current = "";
             loadData();
             setOnboardingModal(true);
             setOnboardStep(1);
+            Alert.alert(
+              "Vault Wiped",
+              "All local database records have been successfully cleared.",
+            );
+          } catch (e) {
+            setErrorModal({
+              visible: true,
+              message: "Failed to clear local database storage.",
+            });
           }
         },
       });
@@ -541,7 +914,7 @@ export default function App() {
       if (sourceAcc && sourceAcc.balance < finalPKRAmount) {
         setErrorModal({
           visible: true,
-          message: `Insufficient balance in "${sourceAcc.name}". Current balance is PKR ${sourceAcc.balance.toLocaleString()}, but you tried to send/spend PKR ${finalPKRAmount.toLocaleString()}.`,
+          message: `Insufficient balance in "${sourceAcc.name}". Available: PKR ${sourceAcc.balance.toLocaleString()}, Required: PKR ${finalPKRAmount.toLocaleString()}.`,
         });
         return;
       }
@@ -594,6 +967,10 @@ export default function App() {
         txType === "transfer" ? destAccountId : null,
       );
     }
+
+    try {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e) {}
 
     triggerCelebration();
     setAmountInput("");
@@ -919,7 +1296,7 @@ export default function App() {
           <tr>
             <td>
               <div class="title">${escapeHtml(invoiceHeading)}</div>
-              <div style="font-size: 11px; color: #778; margin-top: 4px;">VYBE Finance Aura Engine</div>
+              <div style="font-size: 11px; color: #778; margin-top: 4px;">VYBE Manager • Liquid Engine</div>
             </td>
             <td class="meta">
               <div><strong>Date:</strong> ${escapeHtml(dateStr)}</div>
@@ -960,7 +1337,7 @@ export default function App() {
         </div>
 
         <div class="footer">
-          Generated securely via VYBE Finance • Certified Digital Statement
+          Generated securely via VYBE Manager • Certified Digital Statement
         </div>
       </body>
       </html>
@@ -998,7 +1375,6 @@ export default function App() {
       }
     } catch (e) {
       if (!isUserCancelled(e)) {
-        console.log("PDF generation error:", e);
         setErrorModal({
           visible: true,
           message: invoicePdfErrorMessage(e),
@@ -1030,7 +1406,6 @@ export default function App() {
       setInvoiceModal(false);
     } catch (e) {
       if (!isUserCancelled(e)) {
-        console.log("PDF share error:", e);
         setErrorModal({
           visible: true,
           message: invoicePdfErrorMessage(e),
@@ -1090,7 +1465,6 @@ export default function App() {
         closeMenu();
       }
     } catch (e) {
-      console.log("Upload backup error:", e);
       setErrorModal({
         visible: true,
         message: "Failed to restore backup file.",
@@ -1130,54 +1504,108 @@ export default function App() {
     }
   };
 
-  const totalNetWorth = accounts.reduce(
-    (sum, acc) => sum + (acc.balance || 0),
-    0,
+  // Financial Calculations
+  const totalNetWorth = useMemo(
+    () => accounts.reduce((sum, acc) => sum + (acc.balance || 0), 0),
+    [accounts],
   );
 
-  const categoryTotals: { [key: string]: number } = {};
-  transactions
-    .filter(
-      (t: any) =>
-        t.type === "out" &&
-        t.date.startsWith(new Date().toISOString().slice(0, 7)),
-    )
-    .forEach((t: any) => {
-      categoryTotals[t.category] = (categoryTotals[t.category] || 0) + t.amount;
+  const currentMonthPrefix = new Date().toISOString().slice(0, 7);
+
+  const monthlyMetrics = useMemo(() => {
+    let income = 0;
+    let expense = 0;
+    const catMap: { [key: string]: number } = {};
+
+    transactions.forEach((t: any) => {
+      if (t.date && t.date.startsWith(currentMonthPrefix)) {
+        if (t.type === "in") {
+          income += Number(t.amount) || 0;
+        } else if (t.type === "out") {
+          const amt = Number(t.amount) || 0;
+          expense += amt;
+          catMap[t.category] = (catMap[t.category] || 0) + amt;
+        }
+      }
     });
 
-  const filteredTransactions = transactions.filter((t: any) => {
-    if (
-      selectedAccountFilter &&
-      Number(t.account_id) !== Number(selectedAccountFilter) &&
-      Number(t.dest_account_id) !== Number(selectedAccountFilter)
-    ) {
-      return false;
-    }
-    const today = new Date().toISOString().split("T")[0];
-    const txDate = t.date;
+    return { income, expense, catMap };
+  }, [transactions, currentMonthPrefix]);
 
-    if (timeFilter === "week") {
-      const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
-        .toISOString()
-        .split("T")[0];
-      if (txDate < oneWeekAgo) return false;
-    } else if (timeFilter === "month") {
-      if (!txDate.startsWith(today.slice(0, 7))) return false;
-    } else if (timeFilter === "last_month") {
-      const lastMonthPrefix = new Date(
-        new Date().setMonth(new Date().getMonth() - 1),
-      )
-        .toISOString()
-        .slice(0, 7);
-      if (!txDate.startsWith(lastMonthPrefix)) return false;
-    } else if (timeFilter === "year") {
-      if (!txDate.startsWith(today.slice(0, 4))) return false;
-    } else if (timeFilter === "custom") {
-      if (txDate < startDate || txDate > endDate) return false;
-    }
-    return true;
-  });
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter((t: any) => {
+      if (
+        selectedAccountFilter &&
+        Number(t.account_id) !== Number(selectedAccountFilter) &&
+        Number(t.dest_account_id) !== Number(selectedAccountFilter)
+      ) {
+        return false;
+      }
+      if (ledgerTypeFilter !== "all" && t.type !== ledgerTypeFilter) {
+        return false;
+      }
+      if (ledgerSearchQuery.trim() !== "") {
+        const q = ledgerSearchQuery.toLowerCase();
+        const matchDesc = (t.description || "").toLowerCase().includes(q);
+        const matchCat = (t.category || "").toLowerCase().includes(q);
+        if (!matchDesc && !matchCat) return false;
+      }
+
+      const today = new Date().toISOString().split("T")[0];
+      const txDate = t.date || "";
+
+      if (timeFilter === "week") {
+        const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .split("T")[0];
+        if (txDate < oneWeekAgo) return false;
+      } else if (timeFilter === "month") {
+        if (!txDate.startsWith(today.slice(0, 7))) return false;
+      } else if (timeFilter === "last_month") {
+        const lastMonthPrefix = new Date(
+          new Date().setMonth(new Date().getMonth() - 1),
+        )
+          .toISOString()
+          .slice(0, 7);
+        if (!txDate.startsWith(lastMonthPrefix)) return false;
+      } else if (timeFilter === "year") {
+        if (!txDate.startsWith(today.slice(0, 4))) return false;
+      } else if (timeFilter === "custom") {
+        if (txDate < startDate || txDate > endDate) return false;
+      }
+      return true;
+    });
+  }, [
+    transactions,
+    selectedAccountFilter,
+    ledgerTypeFilter,
+    ledgerSearchQuery,
+    timeFilter,
+    startDate,
+    endDate,
+  ]);
+
+  const periodAnalytics = useMemo(() => {
+    let inflow = 0;
+    let outflow = 0;
+    const breakdown: { [key: string]: number } = {};
+
+    filteredTransactions.forEach((t: any) => {
+      if (t.type === "in") {
+        inflow += Number(t.amount) || 0;
+      } else if (t.type === "out") {
+        const amt = Number(t.amount) || 0;
+        outflow += amt;
+        breakdown[t.category] = (breakdown[t.category] || 0) + amt;
+      }
+    });
+
+    const sortedCategories = Object.entries(breakdown).sort(
+      (a, b) => b[1] - a[1],
+    );
+
+    return { inflow, outflow, sortedCategories };
+  }, [filteredTransactions]);
 
   const filteredCurrencies = WORLD_CURRENCIES.filter(
     (c) =>
@@ -1185,276 +1613,1024 @@ export default function App() {
       c.country.toLowerCase().includes(currencySearchQuery.toLowerCase()),
   );
 
+  // ================= UI RENDER HELPERS =================
+  const renderTimeFilterPills = () => (
+    <>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={{ marginBottom: 12 }}
+      >
+        {[
+          { key: "all", label: "All Time" },
+          { key: "week", label: "This Week" },
+          { key: "month", label: "This Month" },
+          { key: "last_month", label: "Last Month" },
+          { key: "year", label: "This Year" },
+          { key: "custom", label: "Custom Range" },
+        ].map((f) => (
+          <TouchableOpacity
+            key={f.key}
+            style={[
+              styles.pillChip,
+              {
+                backgroundColor: THEME.surfaceElevated,
+                borderColor: THEME.borderCard,
+              },
+              timeFilter === f.key && {
+                backgroundColor: auraColor,
+                borderColor: auraColor,
+              },
+            ]}
+            onPress={() => {
+              try {
+                Haptics.selectionAsync();
+              } catch (e) {}
+              setTimeFilter(f.key as any);
+            }}
+          >
+            <Text
+              style={[
+                styles.pillChipText,
+                {
+                  color:
+                    timeFilter === f.key
+                      ? isDarkMode
+                        ? THEME.bg
+                        : "#FFF"
+                      : THEME.textSecondary,
+                },
+                timeFilter === f.key && styles.pillChipTextActive,
+              ]}
+            >
+              {f.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      {timeFilter === "custom" && (
+        <View
+          style={[
+            styles.modernRangeBox,
+            {
+              borderColor: `${auraColor}40`,
+              backgroundColor: THEME.surface,
+            },
+          ]}
+        >
+          <View
+            style={[
+              styles.rangeTabsRow,
+              {
+                backgroundColor: THEME.surfaceElevated,
+                borderColor: THEME.borderCard,
+              },
+            ]}
+          >
+            <TouchableOpacity
+              style={[
+                styles.rangeTabBtn,
+                rangeTab === "start" && { backgroundColor: auraColor },
+              ]}
+              onPress={() => setRangeTab("start")}
+            >
+              <Text
+                style={[
+                  styles.rangeTabText,
+                  {
+                    color:
+                      rangeTab === "start"
+                        ? isDarkMode
+                          ? THEME.bg
+                          : "#FFF"
+                        : THEME.textSecondary,
+                  },
+                  rangeTab === "start" && styles.rangeTabTextActive,
+                ]}
+              >
+                From: {startDate}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.rangeTabBtn,
+                rangeTab === "end" && { backgroundColor: auraColor },
+              ]}
+              onPress={() => setRangeTab("end")}
+            >
+              <Text
+                style={[
+                  styles.rangeTabText,
+                  {
+                    color:
+                      rangeTab === "end"
+                        ? isDarkMode
+                          ? THEME.bg
+                          : "#FFF"
+                        : THEME.textSecondary,
+                  },
+                  rangeTab === "end" && styles.rangeTabTextActive,
+                ]}
+              >
+                To: {endDate}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={[styles.rangeSubLabel, { color: auraColor }]}>
+            Select Year:
+          </Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={{ marginBottom: 8 }}
+          >
+            {["2024", "2025", "2026", "2027"].map((yr) => {
+              const active =
+                rangeTab === "start"
+                  ? startDate.startsWith(yr)
+                  : endDate.startsWith(yr);
+              return (
+                <TouchableOpacity
+                  key={yr}
+                  style={[
+                    styles.pillChip,
+                    {
+                      backgroundColor: THEME.surfaceElevated,
+                      borderColor: THEME.borderCard,
+                    },
+                    active && {
+                      backgroundColor: auraColor,
+                      borderColor: auraColor,
+                    },
+                  ]}
+                  onPress={() => {
+                    if (rangeTab === "start") {
+                      setStartDate(`${yr}${startDate.slice(4)}`);
+                    } else {
+                      setEndDate(`${yr}${endDate.slice(4)}`);
+                    }
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.pillChipText,
+                      {
+                        color: active
+                          ? isDarkMode
+                            ? THEME.bg
+                            : "#FFF"
+                          : THEME.textSecondary,
+                      },
+                      active && styles.pillChipTextActive,
+                    ]}
+                  >
+                    {yr}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+
+          <Text style={[styles.rangeSubLabel, { color: auraColor }]}>
+            Select Month:
+          </Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={{ marginBottom: 8 }}
+          >
+            {[
+              { m: "01", name: "Jan" },
+              { m: "02", name: "Feb" },
+              { m: "03", name: "Mar" },
+              { m: "04", name: "Apr" },
+              { m: "05", name: "May" },
+              { m: "06", name: "Jun" },
+              { m: "07", name: "Jul" },
+              { m: "08", name: "Aug" },
+              { m: "09", name: "Sep" },
+              { m: "10", name: "Oct" },
+              { m: "11", name: "Nov" },
+              { m: "12", name: "Dec" },
+            ].map((mo) => {
+              const active =
+                rangeTab === "start"
+                  ? startDate.slice(5, 7) === mo.m
+                  : endDate.slice(5, 7) === mo.m;
+              return (
+                <TouchableOpacity
+                  key={mo.m}
+                  style={[
+                    styles.pillChip,
+                    {
+                      backgroundColor: THEME.surfaceElevated,
+                      borderColor: THEME.borderCard,
+                    },
+                    active && {
+                      backgroundColor: auraColor,
+                      borderColor: auraColor,
+                    },
+                  ]}
+                  onPress={() => {
+                    if (rangeTab === "start") {
+                      setStartDate(
+                        `${startDate.slice(0, 4)}-${mo.m}${startDate.slice(7)}`,
+                      );
+                    } else {
+                      setEndDate(
+                        `${endDate.slice(0, 4)}-${mo.m}${endDate.slice(7)}`,
+                      );
+                    }
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.pillChipText,
+                      {
+                        color: active
+                          ? isDarkMode
+                            ? THEME.bg
+                            : "#FFF"
+                          : THEME.textSecondary,
+                      },
+                      active && styles.pillChipTextActive,
+                    ]}
+                  >
+                    {mo.name}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+
+          <Text style={[styles.rangeSubLabel, { color: auraColor }]}>
+            Select Day:
+          </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {Array.from({ length: 31 }, (_, i) =>
+              String(i + 1).padStart(2, "0"),
+            ).map((d) => {
+              const active =
+                rangeTab === "start"
+                  ? startDate.endsWith(d)
+                  : endDate.endsWith(d);
+              return (
+                <TouchableOpacity
+                  key={d}
+                  style={[
+                    styles.pillChip,
+                    {
+                      backgroundColor: THEME.surfaceElevated,
+                      borderColor: THEME.borderCard,
+                    },
+                    active && {
+                      backgroundColor: auraColor,
+                      borderColor: auraColor,
+                    },
+                  ]}
+                  onPress={() => {
+                    if (rangeTab === "start") {
+                      setStartDate(`${startDate.slice(0, 8)}${d}`);
+                    } else {
+                      setEndDate(`${endDate.slice(0, 8)}${d}`);
+                    }
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.pillChipText,
+                      {
+                        color: active
+                          ? isDarkMode
+                            ? THEME.bg
+                            : "#FFF"
+                          : THEME.textSecondary,
+                      },
+                      active && styles.pillChipTextActive,
+                    ]}
+                  >
+                    {d}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+      )}
+    </>
+  );
+
+  const renderTransactionRow = (tx: any) => {
+    const isExpanded = expandedTxId === tx.id;
+    const srcAcc = accounts.find((a) => a.id === tx.account_id);
+    const dstAcc = accounts.find((a) => a.id === tx.dest_account_id);
+
+    const isIn = tx.type === "in";
+    const isTransfer = tx.type === "transfer";
+    const accent = isIn
+      ? THEME.positive
+      : isTransfer
+        ? THEME.electricCyan
+        : THEME.negative;
+
+    return (
+      <TouchableOpacity
+        key={tx.id}
+        activeOpacity={0.88}
+        onPress={() => setExpandedTxId(isExpanded ? null : tx.id)}
+        style={[
+          styles.txCard,
+          { backgroundColor: THEME.surface, borderColor: THEME.borderCard },
+          isExpanded && {
+            borderColor: `${auraColor}80`,
+            backgroundColor: THEME.surfaceElevated,
+          },
+        ]}
+      >
+        <View style={styles.txRowTop}>
+          <View
+            style={[
+              styles.txTypeIndicator,
+              {
+                backgroundColor: `${accent}18`,
+                borderColor: `${accent}55`,
+              },
+            ]}
+          >
+            <Text style={[styles.txTypeGlyph, { color: accent }]}>
+              {isIn ? "↙" : isTransfer ? "⇄" : "↗"}
+            </Text>
+          </View>
+
+          <View style={{ flex: 1, marginRight: 10 }}>
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <Text
+                style={[styles.txTitle, { color: THEME.textPrimary }]}
+                numberOfLines={1}
+              >
+                {tx.description || tx.category}
+              </Text>
+            </View>
+            <Text
+              style={[styles.txSub, { color: THEME.textSecondary }]}
+              numberOfLines={1}
+            >
+              {tx.category} • {srcAcc?.name || "Main Wallet"}
+              {dstAcc ? ` → ${dstAcc.name}` : ""} • {tx.date}
+            </Text>
+          </View>
+
+          <View style={{ alignItems: "flex-end" }}>
+            <Text style={[styles.txAmount, { color: accent }]}>
+              {isIn ? "+" : isTransfer ? "⇄ " : "-"}
+              {isPrivacyMode
+                ? "••••••"
+                : tx.original_currency && tx.original_currency !== "PKR"
+                  ? `${tx.original_amount.toLocaleString()} ${tx.original_currency}`
+                  : `PKR ${Number(tx.amount).toLocaleString()}`}
+            </Text>
+            <View
+              style={[
+                styles.statusBadge,
+                {
+                  marginTop: 4,
+                  backgroundColor: `${accent}15`,
+                  borderColor: `${accent}45`,
+                },
+              ]}
+            >
+              <Text style={[styles.statusText, { color: accent }]}>
+                {isIn ? "INFLOW" : isTransfer ? "TRANSFER" : "OUTFLOW"}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {isExpanded && (
+          <View
+            style={[
+              styles.txExpandedDetails,
+              { borderTopColor: THEME.borderCard },
+            ]}
+          >
+            <View style={styles.txDetailGrid}>
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={[styles.txDetailLabel, { color: THEME.textSecondary }]}
+                >
+                  ROUTING ACCOUNT
+                </Text>
+                <Text style={[styles.txDetailValue, { color: auraColor }]}>
+                  {srcAcc?.name || "Main Wallet"}
+                  {dstAcc ? ` ➔ ${dstAcc.name}` : ""}
+                </Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={[styles.txDetailLabel, { color: THEME.textSecondary }]}
+                >
+                  EXCHANGE RATE
+                </Text>
+                <Text style={[styles.txDetailValue, { color: THEME.positive }]}>
+                  1 {tx.original_currency || "PKR"} = {tx.exchange_rate || 1.0}{" "}
+                  PKR
+                </Text>
+              </View>
+            </View>
+
+            <Text
+              style={[
+                styles.txDetailLabel,
+                { color: THEME.textSecondary, marginTop: 8 },
+              ]}
+            >
+              MEMO / DESCRIPTION
+            </Text>
+            <Text style={[styles.txDetailMemo, { color: THEME.textPrimary }]}>
+              {tx.description || "No additional memo recorded."}
+            </Text>
+
+            <View style={styles.txActionRow}>
+              <TouchableOpacity
+                style={[
+                  styles.txInlineBtn,
+                  {
+                    borderColor: `${THEME.electricCyan}50`,
+                    backgroundColor: `${THEME.electricCyan}15`,
+                  },
+                ]}
+                onPress={() => {
+                  setEditingTx(tx);
+                  setDescription(tx.description);
+                  setCategory(tx.category);
+                  setAmountInput(tx.amount.toString());
+                  setTxType(tx.type);
+                  setTxModal(true);
+                }}
+              >
+                <Text
+                  style={[
+                    styles.txInlineBtnText,
+                    { color: THEME.electricCyan },
+                  ]}
+                >
+                  Edit Entry
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.txInlineBtn,
+                  {
+                    borderColor: `${THEME.negative}50`,
+                    backgroundColor: `${THEME.negative}15`,
+                    marginLeft: 10,
+                  },
+                ]}
+                onPress={() => {
+                  setConfirmModal({
+                    visible: true,
+                    title: "Delete Transaction?",
+                    message:
+                      "Remove this record and revert its balance impact?",
+                    onConfirm: () => {
+                      const removed = deleteTransaction(tx.id);
+                      loadData();
+                      triggerUndo("Transaction deleted", () =>
+                        restoreTransaction(removed),
+                      );
+                    },
+                  });
+                }}
+              >
+                <Text
+                  style={[styles.txInlineBtnText, { color: THEME.negative }]}
+                >
+                  Delete
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+      </TouchableOpacity>
+    );
+  };
+
+  const renderAccountCard = (acc: any) => {
+    const anim = accountScaleAnims[acc.id] || new Animated.Value(1);
+    const isSelected = selectedAccountFilter === acc.id;
+    const isPlatform = acc.type === "platform";
+
+    return (
+      <Animated.View
+        key={acc.id}
+        style={{ transform: [{ scale: anim }], marginBottom: 10 }}
+      >
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPressIn={() => handleAccountPressIn(acc.id)}
+          onPressOut={() => handleAccountPressOut(acc.id)}
+          onPress={() => {
+            try {
+              Haptics.selectionAsync();
+            } catch (e) {}
+            setSelectedAccountFilter(isSelected ? null : acc.id);
+          }}
+          style={[
+            styles.accountCard,
+            { backgroundColor: THEME.surface, borderColor: THEME.borderCard },
+            isSelected && {
+              borderColor: auraColor,
+              backgroundColor: THEME.surfaceElevated,
+            },
+          ]}
+        >
+          <View
+            style={[
+              styles.accountBadgeIcon,
+              {
+                backgroundColor: isPlatform
+                  ? `${THEME.electricCyan}18`
+                  : `${auraColor}18`,
+                borderColor: isPlatform
+                  ? `${THEME.electricCyan}50`
+                  : `${auraColor}50`,
+              },
+            ]}
+          >
+            <Text
+              style={{
+                color: isPlatform ? THEME.electricCyan : auraColor,
+                fontWeight: "800",
+                fontSize: 13,
+              }}
+            >
+              {acc.currency || "PKR"}
+            </Text>
+          </View>
+
+          <View style={{ flex: 1, marginRight: 8 }}>
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <Text
+                style={[styles.accName, { color: THEME.textPrimary }]}
+                numberOfLines={1}
+              >
+                {acc.name}
+              </Text>
+              <View
+                style={[
+                  styles.accTypePill,
+                  { backgroundColor: THEME.surfaceElevated },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.accType,
+                    { color: isDarkMode ? THEME.textSecondary : "#555" },
+                  ]}
+                >
+                  {String(acc.type || "wallet").toUpperCase()}
+                </Text>
+              </View>
+            </View>
+            <Text style={[styles.accSub, { color: THEME.textSecondary }]}>
+              {isSelected
+                ? "Filtering activity • Tap to clear"
+                : "Tap to filter ledger activity"}
+            </Text>
+          </View>
+
+          <View style={{ alignItems: "flex-end" }}>
+            <Text style={styles.accBalance}>
+              {isPrivacyMode
+                ? "••••••"
+                : `PKR ${Number(acc.balance).toLocaleString()}`}
+            </Text>
+            <TouchableOpacity
+              style={{ marginTop: 4, paddingVertical: 2, paddingHorizontal: 4 }}
+              onPress={() => {
+                setConfirmModal({
+                  visible: true,
+                  title: "Delete Account?",
+                  message: `Remove "${acc.name}" from your active accounts?`,
+                  onConfirm: () => {
+                    const removed = deleteAccount(acc.id);
+                    loadData();
+                    triggerUndo(`Deleted "${acc.name}"`, () =>
+                      restoreAccount(removed),
+                    );
+                  },
+                });
+              }}
+            >
+              <Text style={[styles.deleteText, { color: THEME.negative }]}>
+                Remove
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Animated.View>
+    );
+  };
+
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#07080A" />
+    <SafeAreaView style={[styles.container, { backgroundColor: THEME.bg }]}>
+      <StatusBar
+        barStyle={isDarkMode ? "light-content" : "dark-content"}
+        backgroundColor={THEME.bg}
+      />
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={{ flex: 1 }}
       >
-        <ScrollView
+        {/* ================= TOP APP HEADER (Notch-Safe) ================= */}
+        <View
+          style={[
+            styles.topBarWrapper,
+            {
+              backgroundColor: THEME.bg,
+              borderBottomColor: THEME.borderCard,
+              paddingTop:
+                Platform.OS === "ios"
+                  ? 12
+                  : StatusBar.currentHeight
+                    ? StatusBar.currentHeight + 6
+                    : 14,
+            },
+          ]}
+        >
+          <TouchableOpacity
+            style={[
+              styles.hamburgerBtn,
+              {
+                borderColor: `${auraColor}45`,
+                backgroundColor: THEME.surface,
+              },
+            ]}
+            onPress={openMenu}
+            activeOpacity={0.8}
+            accessibilityLabel="Open Navigation Drawer"
+          >
+            <Ionicons name="menu" size={20} color={auraColor} />
+          </TouchableOpacity>
+
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <BrandMark
+              size={34}
+              auraColor={auraColor}
+              showWordmark={true}
+              isDark={isDarkMode}
+            />
+          </View>
+
+          <TouchableOpacity
+            style={[
+              styles.headerActionPill,
+              {
+                borderColor: `${auraColor}55`,
+                backgroundColor: `${auraColor}16`,
+              },
+            ]}
+            onPress={() => {
+              try {
+                Haptics.selectionAsync();
+              } catch (e) {}
+              setThemeModal(true);
+            }}
+            activeOpacity={0.8}
+          >
+            <View
+              style={[styles.auraSwatchDot, { backgroundColor: auraColor }]}
+            />
+            <Text style={[styles.headerActionText, { color: auraColor }]}>
+              Aura
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Undo Toast Banner */}
+        {undoAction && (
+          <View
+            style={[
+              styles.undoContainer,
+              {
+                borderColor: auraColor,
+                marginHorizontal: 18,
+                backgroundColor: THEME.surfaceElevated,
+              },
+            ]}
+          >
+            <View style={styles.undoBanner}>
+              <Text style={[styles.undoText, { color: THEME.textPrimary }]}>
+                {undoAction.message}
+              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  undoAction.undoFn();
+                  loadData();
+                  setUndoAction(null);
+                }}
+              >
+                <Text style={[styles.undoBtnText, { color: auraColor }]}>
+                  UNDO
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <Animated.View
+              style={[
+                styles.undoProgressBar,
+                {
+                  backgroundColor: auraColor,
+                  width: undoProgressAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ["0%", "100%"],
+                  }),
+                },
+              ]}
+            />
+          </View>
+        )}
+
+        {/* ================= MAIN SCROLLABLE VIEWPORT ================= */}
+        <Animated.ScrollView
+          style={{ flex: 1, opacity: screenFadeAnim }}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Header */}
-          <View style={styles.header}>
-            <TouchableOpacity
-              style={[
-                styles.hamburgerBtn,
-                { borderColor: `${auraColor}60`, shadowColor: auraColor },
-              ]}
-              onPress={openMenu}
-              activeOpacity={0.8}
-            >
-              <View
-                style={[styles.hamburgerLine, { backgroundColor: auraColor }]}
-              />
-              <View
-                style={[styles.hamburgerLine, { backgroundColor: auraColor }]}
-              />
-              <View
-                style={[styles.hamburgerLine, { backgroundColor: auraColor }]}
-              />
-            </TouchableOpacity>
-            <View style={{ marginLeft: 14, flex: 1 }}>
-              <Text style={styles.brandTitle}>VYBE FINANCE</Text>
-              <Text style={[styles.brandSubtitle, { color: auraColor }]}>
-                AURA LIQUID ENGINE
-              </Text>
-            </View>
-            <TouchableOpacity
-              style={[
-                styles.catConfigBtn,
-                { borderColor: auraColor, backgroundColor: `${auraColor}20` },
-              ]}
-              onPress={() => {
-                triggerAuraSurge();
-                setThemeModal(true);
-              }}
-              activeOpacity={0.8}
-            >
-              <View style={[styles.themeGearIcon, { borderColor: auraColor }]}>
-                <View
-                  style={[styles.gearInnerDot, { backgroundColor: auraColor }]}
-                />
-              </View>
-              <Text
-                style={{
-                  color: auraColor,
-                  fontSize: 11,
-                  fontWeight: "700",
-                  marginLeft: 6,
-                }}
-              >
-                Theme
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Total Net Position Card with Aura Lighting Glow */}
-          <Animated.View
-            style={[
-              styles.netPositionCard,
-              {
-                borderColor: `${auraColor}50`,
-                transform: [{ scale: pulseAnim }],
-                shadowOpacity: auraGlowAnim,
-                shadowColor: auraColor,
-              },
-            ]}
-          >
-            <Text style={styles.cardLabel}>TOTAL NET POSITION</Text>
-            <View style={styles.amountRow}>
-              <Text style={styles.netAmount}>
-                {isPrivacyMode
-                  ? "••••••••••"
-                  : `PKR ${totalNetWorth.toLocaleString()}`}
-              </Text>
-              <TouchableOpacity
-                style={[styles.eyeButton, { borderColor: `${auraColor}50` }]}
-                onPress={() => {
-                  triggerAuraSurge();
-                  setIsPrivacyMode(!isPrivacyMode);
-                }}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.eyeIconText}>
-                  {isPrivacyMode ? "👁️‍🗨️" : "👁️"}
-                </Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.liveBadge}>
-              <View
+          {/* ================= SCREEN 1: HOME COMMAND CENTER ================= */}
+          {primaryNav === "home" && (
+            <>
+              {/* Hero Net Worth Card with Aura Lighting */}
+              <Animated.View
                 style={[
-                  styles.greenDot,
-                  { backgroundColor: auraColor, shadowColor: auraColor },
+                  styles.netPositionCard,
+                  {
+                    backgroundColor: THEME.surface,
+                    borderColor: `${auraColor}55`,
+                    transform: [{ scale: pulseAnim }],
+                    shadowColor:
+                      auraIntensity === "off" ? "transparent" : auraColor,
+                    shadowOpacity:
+                      auraIntensity === "vivid"
+                        ? 0.38
+                        : auraIntensity === "subtle"
+                          ? 0.08
+                          : 0.2,
+                  },
                 ]}
-              />
-              <Text style={[styles.liveText, { color: auraColor }]}>
-                Live Aura Security Active
-              </Text>
-            </View>
-          </Animated.View>
+              >
+                <View style={styles.netWorthHeaderRow}>
+                  <View>
+                    <Text
+                      style={[styles.cardLabel, { color: THEME.textSecondary }]}
+                    >
+                      TOTAL NET WORTH
+                    </Text>
+                    <View style={styles.liveBadge}>
+                      <View
+                        style={[
+                          styles.greenDot,
+                          { backgroundColor: THEME.positive },
+                        ]}
+                      />
+                      <Text
+                        style={[
+                          styles.liveText,
+                          { color: THEME.textSecondary },
+                        ]}
+                      >
+                        Offline SQLite Vault • {accounts.length} Accounts
+                      </Text>
+                    </View>
+                  </View>
 
-          {/* Undo Toast */}
-          {undoAction && (
-            <View
-              style={[
-                styles.undoContainer,
-                { borderColor: auraColor, shadowColor: auraColor },
-              ]}
-            >
-              <View style={styles.undoBanner}>
-                <Text style={styles.undoText}>{undoAction.message}</Text>
-                <TouchableOpacity
-                  onPress={() => {
-                    undoAction.undoFn();
-                    loadData();
-                    setUndoAction(null);
-                  }}
+                  <TouchableOpacity
+                    style={[
+                      styles.eyeButton,
+                      {
+                        borderColor: `${auraColor}45`,
+                        backgroundColor: THEME.surfaceElevated,
+                      },
+                    ]}
+                    onPress={() => {
+                      try {
+                        Haptics.selectionAsync();
+                      } catch (e) {}
+                      setIsPrivacyMode(!isPrivacyMode);
+                    }}
+                    activeOpacity={0.8}
+                    accessibilityLabel="Toggle Privacy Mode"
+                  >
+                    <Feather
+                      name={isPrivacyMode ? "eye-off" : "eye"}
+                      size={16}
+                      color={auraColor}
+                    />
+                  </TouchableOpacity>
+                </View>
+
+                <Text
+                  style={[styles.netAmount, { color: THEME.textPrimary }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
                 >
-                  <Text style={[styles.undoBtnText, { color: auraColor }]}>
-                    UNDO
+                  {isPrivacyMode
+                    ? "••••••••••"
+                    : `PKR ${totalNetWorth.toLocaleString()}`}
+                </Text>
+
+                {/* Monthly Cashflow Bar */}
+                <View
+                  style={[
+                    styles.heroMetricsRow,
+                    { borderTopColor: THEME.borderCard },
+                  ]}
+                >
+                  <View style={styles.heroMetricItem}>
+                    <Text
+                      style={[
+                        styles.heroMetricLabel,
+                        { color: THEME.textSecondary },
+                      ]}
+                    >
+                      THIS MONTH IN
+                    </Text>
+                    <Text
+                      style={[
+                        styles.heroMetricValue,
+                        { color: THEME.positive },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {isPrivacyMode
+                        ? "••••"
+                        : `+PKR ${monthlyMetrics.income.toLocaleString()}`}
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.heroMetricDivider,
+                      { backgroundColor: THEME.borderCard },
+                    ]}
+                  />
+                  <View style={styles.heroMetricItem}>
+                    <Text
+                      style={[
+                        styles.heroMetricLabel,
+                        { color: THEME.textSecondary },
+                      ]}
+                    >
+                      THIS MONTH OUT
+                    </Text>
+                    <Text
+                      style={[
+                        styles.heroMetricValue,
+                        { color: THEME.negative },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {isPrivacyMode
+                        ? "••••"
+                        : `-PKR ${monthlyMetrics.expense.toLocaleString()}`}
+                    </Text>
+                  </View>
+                </View>
+              </Animated.View>
+
+              {/* Quick Actions Command Bar */}
+              <View style={styles.quickActionsGrid}>
+                <TouchableOpacity
+                  style={[
+                    styles.quickActionTile,
+                    {
+                      backgroundColor: auraColor,
+                      borderColor: auraColor,
+                    },
+                  ]}
+                  onPress={() => {
+                    try {
+                      Haptics.selectionAsync();
+                    } catch (e) {}
+                    setEditingTx(null);
+                    setTxType("out");
+                    setTxModal(true);
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Feather name="plus-circle" size={18} color="#09090F" />
+                  <Text style={styles.quickActionLabelPrimary}>
+                    Record Entry
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.quickActionTile,
+                    {
+                      backgroundColor: THEME.surface,
+                      borderColor: THEME.borderCard,
+                    },
+                  ]}
+                  onPress={() => {
+                    try {
+                      Haptics.selectionAsync();
+                    } catch (e) {}
+                    setEditingTx(null);
+                    setTxType("transfer");
+                    setCategory("Account Transfer");
+                    setTxModal(true);
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <MaterialCommunityIcons
+                    name="swap-horizontal"
+                    size={18}
+                    color={THEME.electricCyan}
+                  />
+                  <Text
+                    style={[
+                      styles.quickActionLabel,
+                      { color: THEME.textPrimary },
+                    ]}
+                  >
+                    Transfer
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.quickActionTile,
+                    {
+                      backgroundColor: THEME.surface,
+                      borderColor: THEME.borderCard,
+                    },
+                  ]}
+                  onPress={() => {
+                    try {
+                      Haptics.selectionAsync();
+                    } catch (e) {}
+                    setAccountModal(true);
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons
+                    name="wallet-outline"
+                    size={18}
+                    color={THEME.positive}
+                  />
+                  <Text
+                    style={[
+                      styles.quickActionLabel,
+                      { color: THEME.textPrimary },
+                    ]}
+                  >
+                    New Wallet
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.quickActionTile,
+                    {
+                      backgroundColor: THEME.surface,
+                      borderColor: THEME.borderCard,
+                    },
+                  ]}
+                  onPress={() => {
+                    try {
+                      Haptics.selectionAsync();
+                    } catch (e) {}
+                    setInvoiceModal(true);
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Feather name="file-text" size={18} color={auraColor} />
+                  <Text
+                    style={[
+                      styles.quickActionLabel,
+                      { color: THEME.textPrimary },
+                    ]}
+                  >
+                    Invoice PDF
                   </Text>
                 </TouchableOpacity>
               </View>
-              <Animated.View
-                style={[
-                  styles.undoProgressBar,
-                  {
-                    backgroundColor: auraColor,
-                    width: undoProgressAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: ["0%", "100%"],
-                    }),
-                  },
-                ]}
-              />
-            </View>
-          )}
 
-          {/* FIXED FLUID LIQUID GLASS NAVIGATION TABS */}
-          <View
-            style={[
-              styles.mainNavTabs,
-              { borderColor: `${auraColor}40`, shadowColor: auraColor },
-            ]}
-          >
-            <TouchableOpacity
-              style={[
-                styles.mainNavTabBtn,
-                activeTab === "dashboard" && {
-                  backgroundColor: auraColor,
-                },
-              ]}
-              onPress={() => handleTabChange("dashboard")}
-              activeOpacity={0.9}
-            >
-              <Text
-                style={[
-                  styles.mainNavTabText,
-                  activeTab === "dashboard" && styles.mainNavTabTextActive,
-                ]}
-              >
-                Dashboard
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.mainNavTabBtn,
-                activeTab === "bills" && {
-                  backgroundColor: auraColor,
-                },
-              ]}
-              onPress={() => handleTabChange("bills")}
-              activeOpacity={0.9}
-            >
-              <Text
-                style={[
-                  styles.mainNavTabText,
-                  activeTab === "bills" && styles.mainNavTabTextActive,
-                ]}
-              >
-                Bills
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.mainNavTabBtn,
-                activeTab === "budgets" && {
-                  backgroundColor: auraColor,
-                },
-              ]}
-              onPress={() => handleTabChange("budgets")}
-              activeOpacity={0.9}
-            >
-              <Text
-                style={[
-                  styles.mainNavTabText,
-                  activeTab === "budgets" && styles.mainNavTabTextActive,
-                ]}
-              >
-                Budgets
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.mainNavTabBtn,
-                activeTab === "goals" && {
-                  backgroundColor: auraColor,
-                },
-              ]}
-              onPress={() => handleTabChange("goals")}
-              activeOpacity={0.9}
-            >
-              <Text
-                style={[
-                  styles.mainNavTabText,
-                  activeTab === "goals" && styles.mainNavTabTextActive,
-                ]}
-              >
-                Goals
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.mainNavTabBtn,
-                activeTab === "debts" && {
-                  backgroundColor: auraColor,
-                },
-              ]}
-              onPress={() => handleTabChange("debts")}
-              activeOpacity={0.9}
-            >
-              <Text
-                style={[
-                  styles.mainNavTabText,
-                  activeTab === "debts" && styles.mainNavTabTextActive,
-                ]}
-              >
-                Debts
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* ================= TAB 1: DASHBOARD ================= */}
-          {activeTab === "dashboard" && (
-            <>
+              {/* Accounts Summary Section */}
               <View style={styles.sectionHeaderRow}>
-                <Text style={styles.sectionTitle}>Accounts & Wallets</Text>
+                <Text
+                  style={[styles.sectionTitle, { color: THEME.textPrimary }]}
+                >
+                  Accounts & Wallets
+                </Text>
                 <TouchableOpacity
-                  onPress={() => {
-                    triggerAuraSurge();
-                    setAccountModal(true);
-                  }}
+                  onPress={() => handlePrimaryNavChange("accounts")}
                 >
                   <Text style={[styles.actionLink, { color: auraColor }]}>
-                    + Add Account
+                    Manage All ({accounts.length}) →
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -1471,1450 +2647,3038 @@ export default function App() {
                   onPress={() => setSelectedAccountFilter(null)}
                 >
                   <Text style={[styles.filterText, { color: auraColor }]}>
-                    Filtering by Account. Tap here to clear.
+                    Filtering by selected wallet • Tap to show all accounts
                   </Text>
                 </TouchableOpacity>
               )}
 
-              {accounts.map((acc) => {
-                const anim = accountScaleAnims[acc.id] || new Animated.Value(1);
-                return (
-                  <Animated.View
-                    key={acc.id}
-                    style={{ transform: [{ scale: anim }] }}
-                  >
-                    <TouchableOpacity
-                      activeOpacity={1}
-                      onPressIn={() => handleAccountPressIn(acc.id)}
-                      onPressOut={() => handleAccountPressOut(acc.id)}
-                      onPress={() =>
-                        setSelectedAccountFilter(
-                          selectedAccountFilter === acc.id ? null : acc.id,
-                        )
-                      }
-                      style={[
-                        styles.accountCard,
-                        selectedAccountFilter === acc.id && {
-                          borderColor: auraColor,
-                          backgroundColor: "rgba(30, 34, 53, 0.9)",
-                        },
-                      ]}
-                    >
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.accName}>
-                          {acc.name}{" "}
-                          <Text style={styles.accType}>({acc.type})</Text>
-                        </Text>
-                        <Text style={styles.accSub}>
-                          Currency: {acc.currency}
-                        </Text>
-                      </View>
-                      <Text style={[styles.accBalance, { marginRight: 12 }]}>
-                        {isPrivacyMode
-                          ? "••••••"
-                          : `PKR ${acc.balance.toLocaleString()}`}
-                      </Text>
-                      <TouchableOpacity
-                        onPress={() => {
-                          triggerAuraSurge();
-                          setConfirmModal({
-                            visible: true,
-                            title: "Delete Account?",
-                            message: `Remove "${acc.name}"?`,
-                            onConfirm: () => {
-                              const removed = deleteAccount(acc.id);
-                              loadData();
-                              triggerUndo(`Deleted "${acc.name}"`, () =>
-                                restoreAccount(removed),
-                              );
-                            },
-                          });
-                        }}
-                      >
-                        <Text style={styles.deleteText}>Delete</Text>
-                      </TouchableOpacity>
-                    </TouchableOpacity>
-                  </Animated.View>
-                );
-              })}
+              {accounts.length === 0 ? (
+                <EmptyState
+                  title="No Wallets Configured"
+                  subtitle="Add your bank account, mobile wallet, or USD platform balance to start tracking."
+                  actionLabel="+ Add First Account"
+                  onAction={() => setAccountModal(true)}
+                  auraColor={auraColor}
+                  isDark={isDarkMode}
+                />
+              ) : (
+                accounts.slice(0, 3).map((acc) => renderAccountCard(acc))
+              )}
 
-              {/* Action Buttons */}
-              <View style={styles.actionRow}>
-                <TouchableOpacity
-                  style={[
-                    styles.addButton,
-                    {
-                      backgroundColor: auraColor,
-                      flex: 1,
-                      marginRight: 6,
-                      shadowColor: auraColor,
-                    },
-                  ]}
-                  onPress={() => {
-                    triggerAuraSurge();
-                    setEditingTx(null);
-                    setTxModal(true);
-                  }}
+              {/* Financial Guardrails Strip */}
+              <View style={styles.sectionHeaderRow}>
+                <Text
+                  style={[styles.sectionTitle, { color: THEME.textPrimary }]}
                 >
-                  <Text style={styles.addButtonText}>+ Add Transaction</Text>
-                </TouchableOpacity>
+                  Financial Guardrails
+                </Text>
                 <TouchableOpacity
-                  style={[
-                    styles.addButton,
-                    {
-                      flex: 1,
-                      marginLeft: 6,
-                      backgroundColor: "rgba(26,29,41,0.6)",
-                      borderWidth: 1,
-                      borderColor: auraColor,
-                    },
-                  ]}
-                  onPress={() => {
-                    triggerAuraSurge();
-                    setEditingClient(null);
-                    setClientModal(true);
-                  }}
+                  onPress={() => handlePrimaryNavChange("more")}
                 >
-                  <Text style={[styles.addButtonText, { color: auraColor }]}>
-                    + Add Client
+                  <Text style={[styles.actionLink, { color: auraColor }]}>
+                    All Modules →
                   </Text>
                 </TouchableOpacity>
               </View>
 
-              {/* Time Period Filters */}
-              <View style={styles.sectionHeaderRow}>
-                <Text style={styles.sectionTitle}>
-                  Ledger Activity (Tap any record to inspect)
-                </Text>
-              </View>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
-                style={{ marginBottom: 12 }}
+                style={{ marginBottom: 14 }}
               >
-                {[
-                  { key: "all", label: "All Time" },
-                  { key: "week", label: "This Week" },
-                  { key: "month", label: "This Month" },
-                  { key: "last_month", label: "Last Month" },
-                  { key: "year", label: "This Year" },
-                  { key: "custom", label: "Custom Range" },
-                ].map((f) => (
-                  <TouchableOpacity
-                    key={f.key}
+                <TouchableOpacity
+                  style={[
+                    styles.moduleSummaryCard,
+                    {
+                      backgroundColor: THEME.surface,
+                      borderColor: `${auraColor}40`,
+                    },
+                  ]}
+                  onPress={() => openMoreFeature("bills")}
+                >
+                  <Text
                     style={[
-                      styles.pillChip,
-                      timeFilter === f.key && {
+                      styles.moduleSummaryTitle,
+                      { color: THEME.textSecondary },
+                    ]}
+                  >
+                    Recurring Bills
+                  </Text>
+                  <Text
+                    style={[styles.moduleSummaryCount, { color: auraColor }]}
+                  >
+                    {recurringBills.length} Active
+                  </Text>
+                  <Text
+                    style={[
+                      styles.moduleSummaryHint,
+                      { color: THEME.textMuted },
+                    ]}
+                  >
+                    One-tap monthly payments
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.moduleSummaryCard,
+                    {
+                      backgroundColor: THEME.surface,
+                      borderColor: `${THEME.warning}40`,
+                    },
+                  ]}
+                  onPress={() => openMoreFeature("budgets")}
+                >
+                  <Text
+                    style={[
+                      styles.moduleSummaryTitle,
+                      { color: THEME.textSecondary },
+                    ]}
+                  >
+                    Monthly Budgets
+                  </Text>
+                  <Text
+                    style={[
+                      styles.moduleSummaryCount,
+                      { color: THEME.warning },
+                    ]}
+                  >
+                    {budgets.length} Guardrails
+                  </Text>
+                  <Text
+                    style={[
+                      styles.moduleSummaryHint,
+                      { color: THEME.textMuted },
+                    ]}
+                  >
+                    Category spending caps
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.moduleSummaryCard,
+                    {
+                      backgroundColor: THEME.surface,
+                      borderColor: `${THEME.positive}40`,
+                    },
+                  ]}
+                  onPress={() => openMoreFeature("goals")}
+                >
+                  <Text
+                    style={[
+                      styles.moduleSummaryTitle,
+                      { color: THEME.textSecondary },
+                    ]}
+                  >
+                    Savings Goals
+                  </Text>
+                  <Text
+                    style={[
+                      styles.moduleSummaryCount,
+                      { color: THEME.positive },
+                    ]}
+                  >
+                    {savingsGoals.length} Targets
+                  </Text>
+                  <Text
+                    style={[
+                      styles.moduleSummaryHint,
+                      { color: THEME.textMuted },
+                    ]}
+                  >
+                    Daily run-rate tracker
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.moduleSummaryCard,
+                    {
+                      backgroundColor: THEME.surface,
+                      borderColor: `${THEME.electricCyan}40`,
+                    },
+                  ]}
+                  onPress={() => openMoreFeature("debts")}
+                >
+                  <Text
+                    style={[
+                      styles.moduleSummaryTitle,
+                      { color: THEME.textSecondary },
+                    ]}
+                  >
+                    Loans & Debts
+                  </Text>
+                  <Text
+                    style={[
+                      styles.moduleSummaryCount,
+                      { color: THEME.electricCyan },
+                    ]}
+                  >
+                    {debts.filter((d) => d.status !== "settled").length} Pending
+                  </Text>
+                  <Text
+                    style={[
+                      styles.moduleSummaryHint,
+                      { color: THEME.textMuted },
+                    ]}
+                  >
+                    Receivables & payables
+                  </Text>
+                </TouchableOpacity>
+              </ScrollView>
+
+              {/* Recent Ledger Activity Feed */}
+              <View style={styles.sectionHeaderRow}>
+                <Text
+                  style={[styles.sectionTitle, { color: THEME.textPrimary }]}
+                >
+                  Recent Ledger Activity
+                </Text>
+                <TouchableOpacity
+                  onPress={() => handlePrimaryNavChange("activity")}
+                >
+                  <Text style={[styles.actionLink, { color: auraColor }]}>
+                    Full Ledger ({transactions.length}) →
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {filteredTransactions.length === 0 ? (
+                <EmptyState
+                  title="No Ledger Transactions Yet"
+                  subtitle="Record your first income, expense, or wallet transfer to populate your live timeline."
+                  actionLabel="+ Record Transaction"
+                  onAction={() => {
+                    setEditingTx(null);
+                    setTxModal(true);
+                  }}
+                  auraColor={auraColor}
+                  isDark={isDarkMode}
+                />
+              ) : (
+                filteredTransactions
+                  .slice(0, 6)
+                  .map((tx: any) => renderTransactionRow(tx))
+              )}
+            </>
+          )}
+
+          {/* ================= SCREEN 2: ACTIVITY LEDGER ================= */}
+          {primaryNav === "activity" && (
+            <>
+              <View style={styles.screenHeaderBlock}>
+                <Text
+                  style={[styles.screenMainTitle, { color: THEME.textPrimary }]}
+                >
+                  Ledger Activity
+                </Text>
+                <Text
+                  style={[
+                    styles.screenSubTitle,
+                    { color: THEME.textSecondary },
+                  ]}
+                >
+                  Search, filter, and inspect every transaction with full
+                  auditability.
+                </Text>
+              </View>
+
+              <TextInput
+                style={[
+                  styles.searchBarInput,
+                  {
+                    backgroundColor: THEME.surface,
+                    color: THEME.textPrimary,
+                    borderColor: THEME.borderCard,
+                  },
+                ]}
+                placeholder="Search description or category..."
+                placeholderTextColor={THEME.textSecondary}
+                value={ledgerSearchQuery}
+                onChangeText={setLedgerSearchQuery}
+              />
+
+              {/* Type Filter Pills */}
+              <View style={styles.ledgerTypeRow}>
+                {[
+                  { key: "all", label: "All" },
+                  { key: "in", label: "Inflow" },
+                  { key: "out", label: "Outflow" },
+                  { key: "transfer", label: "Transfers" },
+                ].map((t) => (
+                  <TouchableOpacity
+                    key={t.key}
+                    style={[
+                      styles.ledgerTypePill,
+                      {
+                        backgroundColor: THEME.surface,
+                        borderColor: THEME.borderCard,
+                      },
+                      ledgerTypeFilter === t.key && {
                         backgroundColor: auraColor,
                         borderColor: auraColor,
                       },
                     ]}
                     onPress={() => {
-                      triggerAuraSurge();
-                      setTimeFilter(f.key as any);
+                      try {
+                        Haptics.selectionAsync();
+                      } catch (e) {}
+                      setLedgerTypeFilter(t.key as any);
                     }}
                   >
                     <Text
                       style={[
-                        styles.pillChipText,
-                        timeFilter === f.key && styles.pillChipTextActive,
+                        styles.ledgerTypeText,
+                        { color: THEME.textSecondary },
+                        ledgerTypeFilter === t.key && {
+                          color: isDarkMode ? THEME.bg : "#FFF",
+                          fontWeight: "800",
+                        },
                       ]}
                     >
-                      {f.label}
+                      {t.label}
                     </Text>
                   </TouchableOpacity>
                 ))}
-              </ScrollView>
+              </View>
 
-              {/* Modern Minimal Range Selector */}
-              {timeFilter === "custom" && (
-                <View
+              {renderTimeFilterPills()}
+
+              <View style={styles.sectionHeaderRow}>
+                <Text
+                  style={[styles.sectionTitle, { color: THEME.textPrimary }]}
+                >
+                  Matching Records ({filteredTransactions.length})
+                </Text>
+                <TouchableOpacity onPress={() => setExportModal(true)}>
+                  <Text
+                    style={[styles.actionLink, { color: THEME.electricCyan }]}
+                  >
+                    Export CSV 📥
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {filteredTransactions.length === 0 ? (
+                <EmptyState
+                  title="No Matching Transactions"
+                  subtitle="Try clearing your search query or adjusting the active date filter."
+                  actionLabel="Reset Filters"
+                  onAction={() => {
+                    setLedgerSearchQuery("");
+                    setLedgerTypeFilter("all");
+                    setTimeFilter("all");
+                    setSelectedAccountFilter(null);
+                  }}
+                  auraColor={auraColor}
+                  isDark={isDarkMode}
+                />
+              ) : (
+                filteredTransactions.map((tx: any) => renderTransactionRow(tx))
+              )}
+            </>
+          )}
+
+          {/* ================= SCREEN 3: INSIGHTS & ANALYTICS ================= */}
+          {primaryNav === "insights" && (
+            <Animated.View
+              style={{
+                opacity: insightsWelcomeAnim,
+                transform: [
+                  {
+                    translateY: insightsWelcomeAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [18, 0],
+                    }),
+                  },
+                ],
+              }}
+            >
+              <View style={styles.screenHeaderBlock}>
+                <Text
+                  style={[styles.screenMainTitle, { color: THEME.textPrimary }]}
+                >
+                  Financial Intelligence
+                </Text>
+                <Text
                   style={[
-                    styles.modernRangeBox,
-                    { borderColor: `${auraColor}40` },
+                    styles.screenSubTitle,
+                    { color: THEME.textSecondary },
                   ]}
                 >
-                  <View style={styles.rangeTabsRow}>
-                    <TouchableOpacity
+                  Real-time cashflow ratios and category spending distribution
+                  (transfers excluded).
+                </Text>
+              </View>
+
+              {renderTimeFilterPills()}
+
+              {/* Cashflow Comparison Card */}
+              <View
+                style={[
+                  styles.modernRangeBox,
+                  {
+                    backgroundColor: THEME.surface,
+                    borderColor: `${auraColor}45`,
+                  },
+                ]}
+              >
+                <Text
+                  style={[styles.cardLabel, { color: THEME.textSecondary }]}
+                >
+                  PERIOD CASHFLOW VS BURN
+                </Text>
+                <View style={styles.insightComparisonRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text
                       style={[
-                        styles.rangeTabBtn,
-                        rangeTab === "start" && {
-                          backgroundColor: auraColor,
-                          shadowColor: auraColor,
-                        },
+                        styles.txDetailLabel,
+                        { color: THEME.textSecondary },
                       ]}
-                      onPress={() => setRangeTab("start")}
                     >
-                      <Text
-                        style={[
-                          styles.rangeTabText,
-                          rangeTab === "start" && styles.rangeTabTextActive,
-                        ]}
-                      >
-                        From: {startDate}
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
+                      TOTAL INFLOW
+                    </Text>
+                    <Text
                       style={[
-                        styles.rangeTabBtn,
-                        rangeTab === "end" && {
-                          backgroundColor: auraColor,
-                          shadowColor: auraColor,
-                        },
+                        styles.insightBigNumber,
+                        { color: THEME.positive },
                       ]}
-                      onPress={() => setRangeTab("end")}
                     >
-                      <Text
-                        style={[
-                          styles.rangeTabText,
-                          rangeTab === "end" && styles.rangeTabTextActive,
-                        ]}
-                      >
-                        To: {endDate}
-                      </Text>
-                    </TouchableOpacity>
+                      {isPrivacyMode
+                        ? "••••••"
+                        : `PKR ${periodAnalytics.inflow.toLocaleString()}`}
+                    </Text>
                   </View>
-
-                  <Text style={[styles.rangeSubLabel, { color: auraColor }]}>
-                    Select Year:
-                  </Text>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    style={{ marginBottom: 8 }}
-                  >
-                    {["2024", "2025", "2026", "2027"].map((yr) => {
-                      const active =
-                        rangeTab === "start"
-                          ? startDate.startsWith(yr)
-                          : endDate.startsWith(yr);
-                      return (
-                        <TouchableOpacity
-                          key={yr}
-                          style={[
-                            styles.pillChip,
-                            active && {
-                              backgroundColor: auraColor,
-                              borderColor: auraColor,
-                            },
-                          ]}
-                          onPress={() => {
-                            if (rangeTab === "start") {
-                              setStartDate(`${yr}${startDate.slice(4)}`);
-                            } else {
-                              setEndDate(`${yr}${endDate.slice(4)}`);
-                            }
-                          }}
-                        >
-                          <Text
-                            style={[
-                              styles.pillChipText,
-                              active && styles.pillChipTextActive,
-                            ]}
-                          >
-                            {yr}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </ScrollView>
-
-                  <Text style={[styles.rangeSubLabel, { color: auraColor }]}>
-                    Select Month:
-                  </Text>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    style={{ marginBottom: 8 }}
-                  >
-                    {[
-                      { m: "01", name: "Jan" },
-                      { m: "02", name: "Feb" },
-                      { m: "03", name: "Mar" },
-                      { m: "04", name: "Apr" },
-                      { m: "05", name: "May" },
-                      { m: "06", name: "Jun" },
-                      { m: "07", name: "Jul" },
-                      { m: "08", name: "Aug" },
-                      { m: "09", name: "Sep" },
-                      { m: "10", name: "Oct" },
-                      { m: "11", name: "Nov" },
-                      { m: "12", name: "Dec" },
-                    ].map((mo) => {
-                      const active =
-                        rangeTab === "start"
-                          ? startDate.slice(5, 7) === mo.m
-                          : endDate.slice(5, 7) === mo.m;
-                      return (
-                        <TouchableOpacity
-                          key={mo.m}
-                          style={[
-                            styles.pillChip,
-                            active && {
-                              backgroundColor: auraColor,
-                              borderColor: auraColor,
-                            },
-                          ]}
-                          onPress={() => {
-                            if (rangeTab === "start") {
-                              setStartDate(
-                                `${startDate.slice(0, 4)}-${mo.m}${startDate.slice(7)}`,
-                              );
-                            } else {
-                              setEndDate(
-                                `${endDate.slice(0, 4)}-${mo.m}${endDate.slice(7)}`,
-                              );
-                            }
-                          }}
-                        >
-                          <Text
-                            style={[
-                              styles.pillChipText,
-                              active && styles.pillChipTextActive,
-                            ]}
-                          >
-                            {mo.name}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </ScrollView>
-
-                  <Text style={[styles.rangeSubLabel, { color: auraColor }]}>
-                    Select Day:
-                  </Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    {Array.from({ length: 31 }, (_, i) =>
-                      String(i + 1).padStart(2, "0"),
-                    ).map((d) => {
-                      const active =
-                        rangeTab === "start"
-                          ? startDate.endsWith(d)
-                          : endDate.endsWith(d);
-                      return (
-                        <TouchableOpacity
-                          key={d}
-                          style={[
-                            styles.pillChip,
-                            active && {
-                              backgroundColor: auraColor,
-                              borderColor: auraColor,
-                            },
-                          ]}
-                          onPress={() => {
-                            if (rangeTab === "start") {
-                              setStartDate(`${startDate.slice(0, 8)}${d}`);
-                            } else {
-                              setEndDate(`${endDate.slice(0, 8)}${d}`);
-                            }
-                          }}
-                        >
-                          <Text
-                            style={[
-                              styles.pillChipText,
-                              active && styles.pillChipTextActive,
-                            ]}
-                          >
-                            {d}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </ScrollView>
+                  <View style={{ flex: 1, alignItems: "flex-end" }}>
+                    <Text
+                      style={[
+                        styles.txDetailLabel,
+                        { color: THEME.textSecondary },
+                      ]}
+                    >
+                      TOTAL OUTFLOW
+                    </Text>
+                    <Text
+                      style={[
+                        styles.insightBigNumber,
+                        { color: THEME.negative },
+                      ]}
+                    >
+                      {isPrivacyMode
+                        ? "••••••"
+                        : `PKR ${periodAnalytics.outflow.toLocaleString()}`}
+                    </Text>
+                  </View>
                 </View>
-              )}
 
-              {filteredTransactions.map((tx: any) => {
-                const isExpanded = expandedTxId === tx.id;
-                const srcAcc = accounts.find((a) => a.id === tx.account_id);
-                const dstAcc = accounts.find(
-                  (a) => a.id === tx.dest_account_id,
-                );
-
-                return (
-                  <TouchableOpacity
-                    key={tx.id}
-                    activeOpacity={0.9}
-                    onPress={() => setExpandedTxId(isExpanded ? null : tx.id)}
+                {/* Animated Dual Ratio Bar */}
+                {periodAnalytics.inflow + periodAnalytics.outflow > 0 ? (
+                  <View
                     style={[
-                      styles.txCard,
-                      isExpanded && {
-                        borderColor: auraColor,
-                        backgroundColor: "rgba(26,29,41,0.9)",
-                      },
+                      styles.dualBarTrack,
+                      { backgroundColor: THEME.surfaceElevated },
                     ]}
                   >
-                    <View style={{ flex: 1 }}>
+                    <Animated.View
+                      style={{
+                        flex: barAnimProgress.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [
+                            0.01,
+                            periodAnalytics.inflow /
+                              (periodAnalytics.inflow +
+                                periodAnalytics.outflow),
+                          ],
+                        }),
+                        backgroundColor: THEME.positive,
+                        height: "100%",
+                      }}
+                    />
+                    <Animated.View
+                      style={{
+                        flex: barAnimProgress.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [
+                            0.01,
+                            periodAnalytics.outflow /
+                              (periodAnalytics.inflow +
+                                periodAnalytics.outflow),
+                          ],
+                        }),
+                        backgroundColor: THEME.negative,
+                        height: "100%",
+                      }}
+                    />
+                  </View>
+                ) : (
+                  <Text
+                    style={{
+                      color: THEME.textSecondary,
+                      fontSize: 11,
+                      marginTop: 8,
+                    }}
+                  >
+                    Record income or expenses in this period to visualize ratio.
+                  </Text>
+                )}
+
+                <View
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    marginTop: 10,
+                  }}
+                >
+                  <Text style={{ color: THEME.textSecondary, fontSize: 11 }}>
+                    Net Period Delta:
+                  </Text>
+                  <Text
+                    style={{
+                      color:
+                        periodAnalytics.inflow - periodAnalytics.outflow >= 0
+                          ? THEME.positive
+                          : THEME.negative,
+                      fontWeight: "800",
+                      fontSize: 12,
+                      fontVariant: ["tabular-nums"],
+                    }}
+                  >
+                    {periodAnalytics.inflow - periodAnalytics.outflow >= 0
+                      ? "+"
+                      : ""}
+                    PKR{" "}
+                    {(
+                      periodAnalytics.inflow - periodAnalytics.outflow
+                    ).toLocaleString()}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Category Breakdown with Animated Fill Bars */}
+              <View style={styles.sectionHeaderRow}>
+                <Text
+                  style={[styles.sectionTitle, { color: THEME.textPrimary }]}
+                >
+                  Expense Category Breakdown
+                </Text>
+                <TouchableOpacity onPress={() => setCategoryModal(true)}>
+                  <Text style={[styles.actionLink, { color: auraColor }]}>
+                    + Custom Categories
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {periodAnalytics.sortedCategories.length === 0 ? (
+                <EmptyState
+                  title="No Expense Data for Period"
+                  subtitle="Outflow transactions recorded during the selected timeframe will automatically rank here."
+                  auraColor={auraColor}
+                  isDark={isDarkMode}
+                />
+              ) : (
+                periodAnalytics.sortedCategories.map(([catName, amt], idx) => {
+                  const pct =
+                    periodAnalytics.outflow > 0
+                      ? Math.round((amt / periodAnalytics.outflow) * 100)
+                      : 0;
+                  return (
+                    <TouchableOpacity
+                      key={catName}
+                      style={[
+                        styles.categoryRankCard,
+                        {
+                          backgroundColor: THEME.surface,
+                          borderColor: THEME.borderCard,
+                        },
+                      ]}
+                      activeOpacity={0.85}
+                      onPress={() => {
+                        setLedgerSearchQuery(catName);
+                        handlePrimaryNavChange("activity");
+                      }}
+                    >
                       <View
                         style={{
                           flexDirection: "row",
-                          alignItems: "center",
-                          marginBottom: 2,
+                          justifyContent: "space-between",
+                          marginBottom: 6,
                         }}
                       >
-                        <Text style={styles.txTitle}>
-                          {tx.description || tx.category}
-                        </Text>
-                        <View
+                        <Text
                           style={[
-                            styles.statusBadge,
-                            {
-                              marginLeft: 8,
-                              backgroundColor:
-                                tx.type === "in"
-                                  ? "rgba(72,213,174,0.15)"
-                                  : tx.type === "transfer"
-                                    ? `${auraColor}25`
-                                    : "rgba(255,119,143,0.15)",
-                              borderColor:
-                                tx.type === "in"
-                                  ? "#48D5AE"
-                                  : tx.type === "transfer"
-                                    ? auraColor
-                                    : "#FF778F",
-                            },
+                            styles.categoryRankTitle,
+                            { color: THEME.textPrimary },
                           ]}
                         >
-                          <Text
-                            style={[
-                              styles.statusText,
-                              {
-                                color:
-                                  tx.type === "in"
-                                    ? "#48D5AE"
-                                    : tx.type === "transfer"
-                                      ? auraColor
-                                      : "#FF778F",
-                              },
-                            ]}
-                          >
-                            {tx.type === "in"
-                              ? "INFLOW"
-                              : tx.type === "transfer"
-                                ? "TRANSFER"
-                                : "OUTFLOW"}
-                          </Text>
-                        </View>
-                      </View>
-                      <Text style={styles.txSub}>
-                        {tx.category} • {tx.date}
-                      </Text>
-
-                      {isExpanded && (
-                        <View
-                          style={{
-                            marginTop: 10,
-                            paddingTop: 8,
-                            borderTopWidth: 1,
-                            borderTopColor: "rgba(255,255,255,0.08)",
-                          }}
+                          {idx + 1}. {catName}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.categoryRankAmount,
+                            { color: auraColor },
+                          ]}
                         >
-                          <Text
-                            style={{
-                              color: "#F5F6FF",
-                              fontSize: 12,
-                              marginBottom: 4,
-                            }}
-                          >
-                            🏦 Bank / Wallet Used:{" "}
-                            <Text
-                              style={{ color: auraColor, fontWeight: "bold" }}
-                            >
-                              {srcAcc?.name || "Main Wallet"}
-                            </Text>
-                            {dstAcc ? ` ➔ ${dstAcc.name}` : ""}
-                          </Text>
-                          <Text
-                            style={{
-                              color: "#A7ADC0",
-                              fontSize: 11,
-                              marginBottom: 6,
-                            }}
-                          >
-                            📝 Description / Memo:{" "}
-                            {tx.description || "No memo provided."}
-                          </Text>
-                          <Text style={{ color: "#48D5AE", fontSize: 11 }}>
-                            💱 Conversion Rate: 1{" "}
-                            {tx.original_currency || "PKR"} ={" "}
-                            {tx.exchange_rate || 1.0} PKR
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-
-                    <View style={{ alignItems: "flex-end", marginRight: 12 }}>
-                      <Text
+                          {isPrivacyMode
+                            ? "••••"
+                            : `PKR ${amt.toLocaleString()} (${pct}%)`}
+                        </Text>
+                      </View>
+                      <View
                         style={[
-                          styles.txAmount,
-                          tx.type === "in"
-                            ? styles.greenText
-                            : tx.type === "transfer"
-                              ? { color: auraColor }
-                              : styles.redText,
+                          styles.progressTrack,
+                          { backgroundColor: THEME.surfaceElevated },
                         ]}
                       >
-                        {tx.type === "in"
-                          ? "+"
-                          : tx.type === "transfer"
-                            ? "⇄ "
-                            : "-"}
-                        {isPrivacyMode
-                          ? "••••"
-                          : tx.original_currency &&
-                              tx.original_currency !== "PKR"
-                            ? `$${tx.original_amount} ${tx.original_currency}`
-                            : `PKR ${tx.amount}`}
+                        <Animated.View
+                          style={{
+                            width: barAnimProgress.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: ["0%", `${Math.min(pct, 100)}%`],
+                            }),
+                            height: "100%",
+                            backgroundColor:
+                              idx === 0 ? auraColor : THEME.electricCyan,
+                            borderRadius: 5,
+                          }}
+                        />
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </Animated.View>
+          )}
+
+          {/* ================= SCREEN 4: ACCOUNTS & WALLETS ================= */}
+          {primaryNav === "accounts" && (
+            <>
+              <View style={styles.screenHeaderBlock}>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={[
+                        styles.screenMainTitle,
+                        { color: THEME.textPrimary },
+                      ]}
+                    >
+                      Wallets & Liquidity
+                    </Text>
+                    <Text
+                      style={[
+                        styles.screenSubTitle,
+                        { color: THEME.textSecondary },
+                      ]}
+                    >
+                      Manage bank accounts, local wallets, and foreign currency
+                      platforms.
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={[
+                      styles.payBillBtn,
+                      {
+                        backgroundColor: auraColor,
+                        paddingVertical: 10,
+                        paddingHorizontal: 14,
+                      },
+                    ]}
+                    onPress={() => setAccountModal(true)}
+                  >
+                    <Text
+                      style={{
+                        color: isDarkMode ? THEME.bg : "#FFF",
+                        fontWeight: "800",
+                        fontSize: 12,
+                      }}
+                    >
+                      + New Wallet
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {accounts.length === 0 ? (
+                <EmptyState
+                  title="No Active Accounts"
+                  subtitle="Create your first wallet to track your liquid net worth."
+                  actionLabel="+ Add Account"
+                  onAction={() => setAccountModal(true)}
+                  auraColor={auraColor}
+                  isDark={isDarkMode}
+                />
+              ) : (
+                accounts.map((acc) => renderAccountCard(acc))
+              )}
+
+              {/* Clients & Counterparties Directory */}
+              <View style={[styles.sectionHeaderRow, { marginTop: 18 }]}>
+                <Text
+                  style={[styles.sectionTitle, { color: THEME.textPrimary }]}
+                >
+                  Clients & Counterparties ({clients.length})
+                </Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    setEditingClient(null);
+                    setClientModal(true);
+                  }}
+                >
+                  <Text style={[styles.actionLink, { color: auraColor }]}>
+                    + Add Client
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {clients.length === 0 ? (
+                <EmptyState
+                  title="No Counterparties Saved"
+                  subtitle="Add freelance clients or companies to link inflows and generate PDF invoices."
+                  actionLabel="+ Add Client"
+                  onAction={() => setClientModal(true)}
+                  auraColor={auraColor}
+                  isDark={isDarkMode}
+                />
+              ) : (
+                clients.map((c) => (
+                  <View
+                    key={c.id}
+                    style={[
+                      styles.clientCard,
+                      {
+                        backgroundColor: THEME.surface,
+                        borderColor: THEME.borderCard,
+                      },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.clientAvatar,
+                        {
+                          backgroundColor: `${auraColor}20`,
+                          borderColor: `${auraColor}50`,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={{
+                          color: auraColor,
+                          fontWeight: "800",
+                          fontSize: 14,
+                        }}
+                      >
+                        {(c.name || "C").charAt(0).toUpperCase()}
                       </Text>
                     </View>
-
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={[
+                          styles.clientName,
+                          { color: THEME.textPrimary },
+                        ]}
+                      >
+                        {c.name}{" "}
+                        <Text
+                          style={[styles.clientCompany, { color: auraColor }]}
+                        >
+                          ({c.category})
+                        </Text>
+                      </Text>
+                      <Text
+                        style={[
+                          styles.clientMeta,
+                          { color: THEME.textSecondary },
+                        ]}
+                      >
+                        {c.company} • {c.country}
+                      </Text>
+                    </View>
                     <TouchableOpacity
-                      onPress={(e) => {
-                        e.stopPropagation();
-                        triggerAuraSurge();
-                        setEditingTx(tx);
-                        setDescription(tx.description);
-                        setCategory(tx.category);
-                        setAmountInput(tx.amount.toString());
-                        setTxType(tx.type);
-                        setTxModal(true);
+                      onPress={() => {
+                        setEditingClient(c);
+                        setClientName(c.name);
+                        setClientCompany(c.company);
+                        setClientCountry(c.country);
+                        setClientModal(true);
                       }}
-                      style={{ marginRight: 10 }}
+                      style={{ marginRight: 12 }}
                     >
-                      <Text style={styles.editText}>Edit</Text>
+                      <Text
+                        style={[styles.editText, { color: THEME.electricCyan }]}
+                      >
+                        Edit
+                      </Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      onPress={(e) => {
-                        e.stopPropagation();
-                        triggerAuraSurge();
+                      onPress={() => {
                         setConfirmModal({
                           visible: true,
-                          title: "Delete Transaction?",
-                          message: `Remove this record?`,
+                          title: "Delete Client?",
+                          message: `Remove client "${c.name}"?`,
                           onConfirm: () => {
-                            const removed = deleteTransaction(tx.id);
+                            const removed = deleteClient(c.id);
                             loadData();
-                            triggerUndo(`Deleted transaction`, () =>
-                              restoreTransaction(removed),
+                            triggerUndo("Deleted client", () =>
+                              restoreClient(removed),
                             );
                           },
                         });
                       }}
                     >
-                      <Text style={styles.deleteText}>Delete</Text>
-                    </TouchableOpacity>
-                  </TouchableOpacity>
-                );
-              })}
-
-              {/* Clients & Counterparties */}
-              <View style={styles.sectionHeaderRow}>
-                <Text style={styles.sectionTitle}>
-                  Clients & Counterparties
-                </Text>
-              </View>
-              {clients.map((c) => (
-                <View key={c.id} style={styles.clientCard}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.clientName}>
-                      {c.name}{" "}
                       <Text
-                        style={[styles.clientCompany, { color: auraColor }]}
+                        style={[styles.deleteText, { color: THEME.negative }]}
                       >
-                        ({c.category})
+                        Delete
                       </Text>
-                    </Text>
-                    <Text style={styles.clientMeta}>{c.country}</Text>
+                    </TouchableOpacity>
                   </View>
-                  <TouchableOpacity
-                    onPress={() => {
-                      triggerAuraSurge();
-                      setEditingClient(c);
-                      setClientName(c.name);
-                      setClientCompany(c.company);
-                      setClientCountry(c.country);
-                      setClientModal(true);
-                    }}
-                    style={{ marginRight: 12 }}
-                  >
-                    <Text style={styles.editText}>Edit</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => {
-                      triggerAuraSurge();
-                      setConfirmModal({
-                        visible: true,
-                        title: "Delete Client?",
-                        message: `Remove client "${c.name}"?`,
-                        onConfirm: () => {
-                          const removed = deleteClient(c.id);
-                          loadData();
-                          triggerUndo(`Deleted client`, () =>
-                            restoreClient(removed),
-                          );
-                        },
-                      });
-                    }}
-                  >
-                    <Text style={styles.deleteText}>Delete</Text>
-                  </TouchableOpacity>
-                </View>
-              ))}
+                ))
+              )}
             </>
           )}
 
-          {/* ================= TAB 2: RECURRING BILLS ================= */}
-          {activeTab === "bills" && (
-            <View style={{ marginTop: 6 }}>
-              <Text style={styles.sectionTitle}>
-                Automated Subscriptions & Bills
-              </Text>
-              <Text
-                style={{ color: "#A7ADC0", fontSize: 12, marginBottom: 16 }}
+          {/* ================= SCREEN 5: MORE COMMAND HUB & SUB-SCREENS ================= */}
+          {primaryNav === "more" && (
+            <>
+              {/* Sub-navigation Pill Bar inside More (Fixed missing text visibility) */}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={{ marginBottom: 14 }}
               >
-                Manage your monthly overheads and trigger instant one-tap
-                payments with live aura feedback.
-              </Text>
-
-              <View
-                style={[
-                  styles.modernRangeBox,
-                  { borderColor: `${auraColor}40` },
-                ]}
-              >
-                <Text style={styles.sectionTitle}>+ Register New Bill</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Bill Name (e.g. Netflix, Rent, VPN)"
-                  placeholderTextColor="#A7ADC0"
-                  value={billName}
-                  onChangeText={setBillName}
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Monthly Amount (PKR)"
-                  placeholderTextColor="#A7ADC0"
-                  keyboardType="numeric"
-                  value={billAmount}
-                  onChangeText={(t) => setBillAmount(t.replace(/[^0-9.]/g, ""))}
-                />
-
-                <Text style={styles.labelSub}>Due Day of Month (1-31):</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="e.g. 15"
-                  placeholderTextColor="#A7ADC0"
-                  keyboardType="numeric"
-                  value={billDueDay}
-                  onChangeText={(t) => setBillDueDay(t.replace(/[^0-9]/g, ""))}
-                />
-
-                <Text style={styles.labelSub}>Pay From Account:</Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={{ marginBottom: 16 }}
-                >
-                  {accounts.map((acc) => (
-                    <TouchableOpacity
-                      key={acc.id}
+                {[
+                  { key: "hub", label: "⚡ Command Hub" },
+                  { key: "bills", label: "📅 Bills" },
+                  { key: "budgets", label: "🛡️ Budgets" },
+                  { key: "goals", label: "🎯 Goals" },
+                  { key: "debts", label: "🤝 Debts" },
+                  { key: "clients", label: "👥 Clients" },
+                ].map((item) => (
+                  <TouchableOpacity
+                    key={item.key}
+                    style={[
+                      styles.pillChip,
+                      {
+                        backgroundColor: THEME.surfaceElevated,
+                        borderColor: THEME.borderCard,
+                      },
+                      moreSubTab === item.key && {
+                        backgroundColor: auraColor,
+                        borderColor: auraColor,
+                      },
+                    ]}
+                    onPress={() => {
+                      try {
+                        Haptics.selectionAsync();
+                      } catch (e) {}
+                      setMoreSubTab(item.key as any);
+                    }}
+                  >
+                    <Text
                       style={[
-                        styles.pillChip,
-                        billAccountId === acc.id && {
-                          backgroundColor: auraColor,
-                          borderColor: auraColor,
+                        styles.pillChipText,
+                        {
+                          color:
+                            moreSubTab === item.key
+                              ? isDarkMode
+                                ? THEME.bg
+                                : "#FFF"
+                              : THEME.textSecondary,
+                        },
+                        moreSubTab === item.key && styles.pillChipTextActive,
+                      ]}
+                    >
+                      {item.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              {/* HUB OVERVIEW */}
+              {moreSubTab === "hub" && (
+                <View>
+                  <View style={styles.screenHeaderBlock}>
+                    <Text
+                      style={[
+                        styles.screenMainTitle,
+                        { color: THEME.textPrimary },
+                      ]}
+                    >
+                      VYBE Command Suite
+                    </Text>
+                    <Text
+                      style={[
+                        styles.screenSubTitle,
+                        { color: THEME.textSecondary },
+                      ]}
+                    >
+                      Access specialized planning modules, PDF invoicing, and
+                      encrypted vault backups.
+                    </Text>
+                  </View>
+
+                  <View style={styles.hubGrid}>
+                    <TouchableOpacity
+                      style={[
+                        styles.hubTile,
+                        {
+                          backgroundColor: THEME.surface,
+                          borderColor: `${auraColor}45`,
                         },
                       ]}
-                      onPress={() => setBillAccountId(acc.id)}
+                      onPress={() => setMoreSubTab("bills")}
                     >
+                      <Ionicons
+                        name="calendar-outline"
+                        size={22}
+                        color={auraColor}
+                        style={{ marginBottom: 8 }}
+                      />
                       <Text
                         style={[
-                          styles.pillChipText,
-                          billAccountId === acc.id && styles.pillChipTextActive,
+                          styles.hubTileTitle,
+                          { color: THEME.textPrimary },
                         ]}
                       >
-                        {acc.name}
+                        Recurring Bills
+                      </Text>
+                      <Text
+                        style={[
+                          styles.hubTileSub,
+                          { color: THEME.textSecondary },
+                        ]}
+                      >
+                        {recurringBills.length} active subscriptions
                       </Text>
                     </TouchableOpacity>
-                  ))}
-                </ScrollView>
 
-                <TouchableOpacity
-                  style={[
-                    styles.addButton,
-                    { backgroundColor: auraColor, shadowColor: auraColor },
-                  ]}
-                  onPress={handleSaveBill}
-                >
-                  <Text style={styles.addButtonText}>Save Recurring Bill</Text>
-                </TouchableOpacity>
-              </View>
-
-              <Text
-                style={[
-                  styles.sectionTitle,
-                  { marginTop: 10, marginBottom: 10 },
-                ]}
-              >
-                Active Subscriptions ({recurringBills.length})
-              </Text>
-              {recurringBills.length === 0 ? (
-                <Text
-                  style={{
-                    color: "#A7ADC0",
-                    fontSize: 13,
-                    textAlign: "center",
-                    marginVertical: 30,
-                  }}
-                >
-                  No recurring bills registered yet.
-                </Text>
-              ) : (
-                recurringBills.map((b: any) => {
-                  const currentDayNum = new Date().getDate();
-                  const isDueSoon = Math.abs(b.due_day - currentDayNum) <= 3;
-                  const acc = accounts.find((a) => a.id === b.account_id);
-                  return (
-                    <View
-                      key={b.id}
+                    <TouchableOpacity
                       style={[
-                        styles.clientCard,
-                        isDueSoon && {
-                          borderColor: "#FF778F",
-                          backgroundColor: "rgba(255, 119, 143, 0.08)",
+                        styles.hubTile,
+                        {
+                          backgroundColor: THEME.surface,
+                          borderColor: `${THEME.warning}45`,
                         },
                       ]}
+                      onPress={() => setMoreSubTab("budgets")}
                     >
-                      <View style={{ flex: 1 }}>
-                        <View
-                          style={{
-                            flexDirection: "row",
-                            alignItems: "center",
-                            marginBottom: 2,
-                          }}
+                      <Ionicons
+                        name="shield-checkmark-outline"
+                        size={22}
+                        color={THEME.warning}
+                        style={{ marginBottom: 8 }}
+                      />
+                      <Text
+                        style={[
+                          styles.hubTileTitle,
+                          { color: THEME.textPrimary },
+                        ]}
+                      >
+                        Monthly Budgets
+                      </Text>
+                      <Text
+                        style={[
+                          styles.hubTileSub,
+                          { color: THEME.textSecondary },
+                        ]}
+                      >
+                        {budgets.length} spending caps
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[
+                        styles.hubTile,
+                        {
+                          backgroundColor: THEME.surface,
+                          borderColor: `${THEME.positive}45`,
+                        },
+                      ]}
+                      onPress={() => setMoreSubTab("goals")}
+                    >
+                      <Ionicons
+                        name="flag-outline"
+                        size={22}
+                        color={THEME.positive}
+                        style={{ marginBottom: 8 }}
+                      />
+                      <Text
+                        style={[
+                          styles.hubTileTitle,
+                          { color: THEME.textPrimary },
+                        ]}
+                      >
+                        Savings Goals
+                      </Text>
+                      <Text
+                        style={[
+                          styles.hubTileSub,
+                          { color: THEME.textSecondary },
+                        ]}
+                      >
+                        {savingsGoals.length} active targets
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[
+                        styles.hubTile,
+                        {
+                          backgroundColor: THEME.surface,
+                          borderColor: `${THEME.electricCyan}45`,
+                        },
+                      ]}
+                      onPress={() => setMoreSubTab("debts")}
+                    >
+                      <Ionicons
+                        name="people-outline"
+                        size={22}
+                        color={THEME.electricCyan}
+                        style={{ marginBottom: 8 }}
+                      />
+                      <Text
+                        style={[
+                          styles.hubTileTitle,
+                          { color: THEME.textPrimary },
+                        ]}
+                      >
+                        Debts & Loans
+                      </Text>
+                      <Text
+                        style={[
+                          styles.hubTileSub,
+                          { color: THEME.textSecondary },
+                        ]}
+                      >
+                        {debts.length} tracked records
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <Text
+                    style={[
+                      styles.sectionTitle,
+                      {
+                        color: THEME.textPrimary,
+                        marginTop: 14,
+                        marginBottom: 10,
+                      },
+                    ]}
+                  >
+                    Invoicing, Security & Data Operations
+                  </Text>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.drawerNavItem,
+                      {
+                        backgroundColor: THEME.surface,
+                        borderColor: THEME.borderCard,
+                      },
+                    ]}
+                    onPress={() => setInvoiceModal(true)}
+                  >
+                    <Feather
+                      name="file-text"
+                      size={18}
+                      color={auraColor}
+                      style={{ marginRight: 12 }}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={[
+                          styles.drawerNavText,
+                          { color: THEME.textPrimary },
+                        ]}
+                      >
+                        Generate Professional PDF Invoice
+                      </Text>
+                      <Text
+                        style={[styles.accSub, { color: THEME.textSecondary }]}
+                      >
+                        Create itemized or lump-sum client statements
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.drawerNavItem,
+                      {
+                        backgroundColor: THEME.surface,
+                        borderColor: THEME.borderCard,
+                      },
+                    ]}
+                    onPress={() => setInvoiceHistoryModal(true)}
+                  >
+                    <Ionicons
+                      name="folder-open-outline"
+                      size={18}
+                      color={THEME.electricCyan}
+                      style={{ marginRight: 12 }}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={[
+                          styles.drawerNavText,
+                          { color: THEME.textPrimary },
+                        ]}
+                      >
+                        Invoice Vault (30-Day History)
+                      </Text>
+                      <Text
+                        style={[styles.accSub, { color: THEME.textSecondary }]}
+                      >
+                        {invoiceHistoryList.length} archived PDF invoices ready
+                        to share
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.drawerNavItem,
+                      {
+                        backgroundColor: THEME.surface,
+                        borderColor: THEME.borderCard,
+                      },
+                    ]}
+                    onPress={() => setCategoryModal(true)}
+                  >
+                    <Ionicons
+                      name="pricetags-outline"
+                      size={18}
+                      color={THEME.warning}
+                      style={{ marginRight: 12 }}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={[
+                          styles.drawerNavText,
+                          { color: THEME.textPrimary },
+                        ]}
+                      >
+                        Category Manager
+                      </Text>
+                      <Text
+                        style={[styles.accSub, { color: THEME.textSecondary }]}
+                      >
+                        Configure custom inflow & outflow categories
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.drawerNavItem,
+                      {
+                        backgroundColor: THEME.surface,
+                        borderColor: THEME.borderCard,
+                      },
+                    ]}
+                    onPress={() => setExportModal(true)}
+                  >
+                    <Feather
+                      name="download"
+                      size={18}
+                      color={THEME.positive}
+                      style={{ marginRight: 12 }}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={[
+                          styles.drawerNavText,
+                          { color: THEME.textPrimary },
+                        ]}
+                      >
+                        Export Excel / CSV Statement
+                      </Text>
+                      <Text
+                        style={[styles.accSub, { color: THEME.textSecondary }]}
+                      >
+                        Download date-filtered spreadsheet reports
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.drawerNavItem,
+                      {
+                        backgroundColor: THEME.surface,
+                        borderColor: THEME.borderCard,
+                      },
+                    ]}
+                    onPress={downloadBackup}
+                  >
+                    <Feather
+                      name="hard-drive"
+                      size={18}
+                      color={auraColor}
+                      style={{ marginRight: 12 }}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={[
+                          styles.drawerNavText,
+                          { color: THEME.textPrimary },
+                        ]}
+                      >
+                        Export Full JSON Backup
+                      </Text>
+                      <Text
+                        style={[styles.accSub, { color: THEME.textSecondary }]}
+                      >
+                        Save a complete snapshot of your offline database
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.drawerNavItem,
+                      {
+                        backgroundColor: THEME.surface,
+                        borderColor: THEME.borderCard,
+                      },
+                    ]}
+                    onPress={handleUploadBackup}
+                  >
+                    <Feather
+                      name="upload"
+                      size={18}
+                      color={THEME.electricCyan}
+                      style={{ marginRight: 12 }}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={[
+                          styles.drawerNavText,
+                          { color: THEME.textPrimary },
+                        ]}
+                      >
+                        Restore JSON Backup
+                      </Text>
+                      <Text
+                        style={[styles.accSub, { color: THEME.textSecondary }]}
+                      >
+                        Import a previously exported VYBE backup file
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* SUB-SCREEN: RECURRING BILLS (With Advanced Date Range Selector) */}
+              {moreSubTab === "bills" && (
+                <View>
+                  <Text
+                    style={[styles.sectionTitle, { color: THEME.textPrimary }]}
+                  >
+                    Automated Subscriptions & Bills
+                  </Text>
+                  <Text
+                    style={{
+                      color: THEME.textSecondary,
+                      fontSize: 12,
+                      marginBottom: 16,
+                    }}
+                  >
+                    Manage monthly overheads and trigger instant one-tap
+                    payments.
+                  </Text>
+
+                  <View
+                    style={[
+                      styles.modernRangeBox,
+                      {
+                        backgroundColor: THEME.surface,
+                        borderColor: `${auraColor}40`,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.sectionTitle,
+                        { color: THEME.textPrimary, marginBottom: 10 },
+                      ]}
+                    >
+                      + Register New Bill
+                    </Text>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        {
+                          backgroundColor: THEME.surfaceElevated,
+                          color: THEME.textPrimary,
+                        },
+                      ]}
+                      placeholder="Bill Name (e.g. Netflix, Internet, Rent)"
+                      placeholderTextColor={THEME.textSecondary}
+                      value={billName}
+                      onChangeText={setBillName}
+                    />
+                    <TextInput
+                      style={[
+                        styles.input,
+                        {
+                          backgroundColor: THEME.surfaceElevated,
+                          color: THEME.textPrimary,
+                        },
+                      ]}
+                      placeholder="Monthly Amount (PKR)"
+                      placeholderTextColor={THEME.textSecondary}
+                      keyboardType="numeric"
+                      value={billAmount}
+                      onChangeText={(t) =>
+                        setBillAmount(t.replace(/[^0-9.]/g, ""))
+                      }
+                    />
+
+                    <Text style={[styles.labelSub, { color: "#FFFFFF" }]}>
+                      Due Day of Month (1-31):
+                    </Text>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        {
+                          backgroundColor: THEME.surfaceElevated,
+                          color: THEME.textPrimary,
+                        },
+                      ]}
+                      placeholder="e.g. 15"
+                      placeholderTextColor={THEME.textSecondary}
+                      keyboardType="numeric"
+                      value={billDueDay}
+                      onChangeText={(t) =>
+                        setBillDueDay(t.replace(/[^0-9]/g, ""))
+                      }
+                    />
+
+                    <Text style={[styles.labelSub, { color: "#FFFFFF" }]}>
+                      Pay From Account:
+                    </Text>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      style={{ marginBottom: 16 }}
+                    >
+                      {accounts.map((acc) => (
+                        <TouchableOpacity
+                          key={acc.id}
+                          style={[
+                            styles.pillChip,
+                            {
+                              backgroundColor: THEME.surfaceElevated,
+                              borderColor: THEME.borderCard,
+                            },
+                            billAccountId === acc.id && {
+                              backgroundColor: auraColor,
+                              borderColor: auraColor,
+                            },
+                          ]}
+                          onPress={() => setBillAccountId(acc.id)}
                         >
-                          <Text style={styles.clientName}>{b.name}</Text>
-                          <View
+                          <Text
                             style={[
-                              styles.statusBadge,
+                              styles.pillChipText,
                               {
-                                marginLeft: 8,
-                                backgroundColor: isDueSoon
-                                  ? "rgba(255,119,143,0.15)"
-                                  : `${auraColor}20`,
-                                borderColor: isDueSoon ? "#FF778F" : auraColor,
+                                color:
+                                  billAccountId === acc.id
+                                    ? isDarkMode
+                                      ? THEME.bg
+                                      : "#FFF"
+                                    : THEME.textSecondary,
+                              },
+                              billAccountId === acc.id &&
+                                styles.pillChipTextActive,
+                            ]}
+                          >
+                            {acc.name}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+
+                    <TouchableOpacity
+                      style={[
+                        styles.addButton,
+                        { backgroundColor: auraColor, shadowColor: auraColor },
+                      ]}
+                      onPress={handleSaveBill}
+                    >
+                      <Text style={styles.addButtonText}>
+                        Save Recurring Bill
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <Text
+                    style={[
+                      styles.sectionTitle,
+                      {
+                        color: THEME.textPrimary,
+                        marginTop: 10,
+                        marginBottom: 10,
+                      },
+                    ]}
+                  >
+                    Active Subscriptions ({recurringBills.length})
+                  </Text>
+                  {recurringBills.length === 0 ? (
+                    <EmptyState
+                      title="No Recurring Bills"
+                      subtitle="Add your monthly subscriptions above for quick one-tap settlement."
+                      auraColor={auraColor}
+                      isDark={isDarkMode}
+                    />
+                  ) : (
+                    recurringBills.map((b: any) => {
+                      const currentDayNum = new Date().getDate();
+                      const isDueSoon =
+                        Math.abs(b.due_day - currentDayNum) <= 3;
+                      const acc = accounts.find((a) => a.id === b.account_id);
+                      return (
+                        <View
+                          key={b.id}
+                          style={[
+                            styles.clientCard,
+                            {
+                              backgroundColor: THEME.surface,
+                              borderColor: THEME.borderCard,
+                            },
+                            isDueSoon && {
+                              borderColor: THEME.negative,
+                              backgroundColor: "rgba(255, 94, 126, 0.08)",
+                            },
+                          ]}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <View
+                              style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                marginBottom: 2,
+                              }}
+                            >
+                              <Text
+                                style={[
+                                  styles.clientName,
+                                  { color: THEME.textPrimary },
+                                ]}
+                              >
+                                {b.name}
+                              </Text>
+                              <View
+                                style={[
+                                  styles.statusBadge,
+                                  {
+                                    marginLeft: 8,
+                                    backgroundColor: isDueSoon
+                                      ? "rgba(255,94,126,0.15)"
+                                      : `${auraColor}20`,
+                                    borderColor: isDueSoon
+                                      ? THEME.negative
+                                      : auraColor,
+                                  },
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.statusText,
+                                    {
+                                      color: isDueSoon
+                                        ? THEME.negative
+                                        : auraColor,
+                                    },
+                                  ]}
+                                >
+                                  Due Day {b.due_day}
+                                </Text>
+                              </View>
+                            </View>
+                            <Text
+                              style={{
+                                color: THEME.negative,
+                                fontSize: 13,
+                                fontWeight: "bold",
+                              }}
+                            >
+                              PKR {b.amount.toLocaleString()} •{" "}
+                              {acc?.name || "Account"}
+                            </Text>
+                          </View>
+                          <TouchableOpacity
+                            style={[
+                              styles.payBillBtn,
+                              {
+                                backgroundColor: auraColor,
+                                marginRight: 10,
+                                paddingVertical: 8,
+                                paddingHorizontal: 12,
                               },
                             ]}
+                            onPress={() => payRecurringBillNow(b)}
+                          >
+                            <Text
+                              style={{
+                                color: isDarkMode ? THEME.bg : "#FFF",
+                                fontSize: 11,
+                                fontWeight: "800",
+                              }}
+                            >
+                              Pay Now
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => {
+                              deleteRecurringBill(b.id);
+                              loadData();
+                            }}
                           >
                             <Text
                               style={[
-                                styles.statusText,
-                                { color: isDueSoon ? "#FF778F" : auraColor },
+                                styles.deleteText,
+                                { color: THEME.negative },
                               ]}
                             >
-                              Due Day {b.due_day}
+                              Delete
                             </Text>
-                          </View>
+                          </TouchableOpacity>
                         </View>
-                        <Text
-                          style={{
-                            color: "#FF778F",
-                            fontSize: 13,
-                            fontWeight: "bold",
-                          }}
-                        >
-                          PKR {b.amount.toLocaleString()} •{" "}
-                          {acc?.name || "Account"}
-                        </Text>
-                      </View>
-                      <TouchableOpacity
-                        style={[
-                          styles.payBillBtn,
-                          {
-                            backgroundColor: auraColor,
-                            shadowColor: auraColor,
-                            marginRight: 10,
-                            paddingVertical: 8,
-                            paddingHorizontal: 12,
-                          },
-                        ]}
-                        onPress={() => payRecurringBillNow(b)}
-                      >
-                        <Text
-                          style={{
-                            color: "#FFFFFF",
-                            fontSize: 11,
-                            fontWeight: "bold",
-                          }}
-                        >
-                          Pay Now
-                        </Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => {
-                          deleteRecurringBill(b.id);
-                          loadData();
-                        }}
-                      >
-                        <Text style={styles.deleteText}>Delete</Text>
-                      </TouchableOpacity>
-                    </View>
-                  );
-                })
+                      );
+                    })
+                  )}
+                </View>
               )}
-            </View>
-          )}
 
-          {/* ================= TAB 3: BUDGETS ================= */}
-          {activeTab === "budgets" && (
-            <View style={{ marginTop: 6 }}>
-              <Text style={styles.sectionTitle}>Monthly Budget Guardrails</Text>
-              <Text
-                style={{ color: "#A7ADC0", fontSize: 12, marginBottom: 16 }}
-              >
-                Set monthly spending limits per category. Aura glowing bars warn
-                you as you approach limits.
-              </Text>
-
-              <View
-                style={[
-                  styles.modernRangeBox,
-                  { borderColor: `${auraColor}40` },
-                ]}
-              >
-                <Text style={styles.sectionTitle}>
-                  Set Category Monthly Limit
-                </Text>
-
-                <Text style={styles.labelSub}>Select Category:</Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={{ marginBottom: 12 }}
-                >
-                  {allExpenseCategories.map((cat) => (
-                    <TouchableOpacity
-                      key={cat}
-                      style={[
-                        styles.pillChip,
-                        budgetCategory === cat && {
-                          backgroundColor: auraColor,
-                          borderColor: auraColor,
-                        },
-                      ]}
-                      onPress={() => setBudgetCategory(cat)}
-                    >
-                      <Text
-                        style={[
-                          styles.pillChipText,
-                          budgetCategory === cat && styles.pillChipTextActive,
-                        ]}
-                      >
-                        {cat}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-
-                <TextInput
-                  style={styles.input}
-                  placeholder="Monthly Limit (PKR)"
-                  placeholderTextColor="#A7ADC0"
-                  keyboardType="numeric"
-                  value={budgetLimitInput}
-                  onChangeText={(t) =>
-                    setBudgetLimitInput(t.replace(/[^0-9.]/g, ""))
-                  }
-                />
-
-                <TouchableOpacity
-                  style={[
-                    styles.addButton,
-                    { backgroundColor: auraColor, shadowColor: auraColor },
-                  ]}
-                  onPress={handleSaveBudget}
-                >
-                  <Text style={styles.addButtonText}>Save Budget Limit</Text>
-                </TouchableOpacity>
-              </View>
-
-              <Text
-                style={[
-                  styles.sectionTitle,
-                  { marginTop: 10, marginBottom: 10 },
-                ]}
-              >
-                Active Budgets & Progress
-              </Text>
-              {budgets.length === 0 ? (
-                <Text
-                  style={{
-                    color: "#A7ADC0",
-                    fontSize: 13,
-                    textAlign: "center",
-                    marginVertical: 30,
-                  }}
-                >
-                  No budget limits configured yet.
-                </Text>
-              ) : (
-                budgets.map((b: any) => {
-                  const spent = categoryTotals[b.category] || 0;
-                  const ratio = Math.min(
-                    Math.round((spent / b.monthly_limit) * 100),
-                    100,
-                  );
-                  const isWarning = ratio >= 80;
-                  const isExceeded = ratio >= 100;
-
-                  return (
-                    <View
-                      key={b.id}
-                      style={[
-                        styles.modernRangeBox,
-                        isExceeded && {
-                          borderColor: "#FF778F",
-                          backgroundColor: "rgba(255,119,143,0.06)",
-                        },
-                      ]}
-                    >
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          justifyContent: "space-between",
-                          marginBottom: 6,
-                        }}
-                      >
-                        <Text
-                          style={{
-                            color: "#F5F6FF",
-                            fontSize: 13,
-                            fontWeight: "700",
-                          }}
-                        >
-                          {b.category}
-                        </Text>
-                        <Text
-                          style={{
-                            color: isExceeded
-                              ? "#FF778F"
-                              : isWarning
-                                ? "#F1C40F"
-                                : "#48D5AE",
-                            fontSize: 13,
-                            fontWeight: "bold",
-                          }}
-                        >
-                          PKR {spent.toLocaleString()} /{" "}
-                          {b.monthly_limit.toLocaleString()} ({ratio}%)
-                        </Text>
-                      </View>
-                      <View
-                        style={{
-                          height: 10,
-                          backgroundColor: "#12151D",
-                          borderRadius: 5,
-                          overflow: "hidden",
-                        }}
-                      >
-                        <View
-                          style={{
-                            width: `${ratio}%`,
-                            height: "100%",
-                            backgroundColor: isExceeded
-                              ? "#FF778F"
-                              : isWarning
-                                ? "#F1C40F"
-                                : auraColor,
-                            borderRadius: 5,
-                          }}
-                        />
-                      </View>
-                      <TouchableOpacity
-                        style={{ marginTop: 10, alignSelf: "flex-end" }}
-                        onPress={() => {
-                          deleteBudget(b.category);
-                          loadData();
-                        }}
-                      >
-                        <Text style={styles.deleteText}>Remove Budget</Text>
-                      </TouchableOpacity>
-                    </View>
-                  );
-                })
-              )}
-            </View>
-          )}
-
-          {/* ================= TAB 4: GOALS ================= */}
-          {activeTab === "goals" && (
-            <View style={{ marginTop: 6 }}>
-              <View style={styles.sectionHeaderRow}>
-                <Text style={styles.sectionTitle}>Automated Savings Goals</Text>
-                <TouchableOpacity
-                  onPress={() => {
-                    triggerAuraSurge();
-                    setEditingGoalId(null);
-                    setGoalTitle("");
-                    setGoalTargetAmount("");
-                    setGoalModal(true);
-                  }}
-                >
-                  <Text style={[styles.actionLink, { color: auraColor }]}>
-                    + Create Goal
+              {/* SUB-SCREEN: BUDGETS */}
+              {moreSubTab === "budgets" && (
+                <View>
+                  <Text
+                    style={[styles.sectionTitle, { color: THEME.textPrimary }]}
+                  >
+                    Monthly Budget Guardrails
                   </Text>
-                </TouchableOpacity>
-              </View>
-              <Text
-                style={{ color: "#A7ADC0", fontSize: 12, marginBottom: 16 }}
-              >
-                Set target amounts and deadlines. The engine automatically
-                calculates your daily required savings run-rate.
-              </Text>
+                  <Text
+                    style={{
+                      color: THEME.textSecondary,
+                      fontSize: 12,
+                      marginBottom: 16,
+                    }}
+                  >
+                    Set monthly spending limits per category. Dynamic bars warn
+                    you as you approach thresholds.
+                  </Text>
 
-              {savingsGoals.length === 0 ? (
-                <Text
-                  style={{
-                    color: "#A7ADC0",
-                    fontSize: 13,
-                    textAlign: "center",
-                    marginVertical: 30,
-                  }}
-                >
-                  No savings goals created yet.
-                </Text>
-              ) : (
-                savingsGoals.map((g: any) => {
-                  const progress = Math.min(
-                    Math.round((g.current_amount / g.target_amount) * 100),
-                    100,
-                  );
-
-                  const todayMs = new Date().getTime();
-                  const targetMs = new Date(g.target_date).getTime();
-                  const daysDiff = Math.max(
-                    Math.ceil((targetMs - todayMs) / (1000 * 60 * 60 * 24)),
-                    1,
-                  );
-                  const remainingAmt = Math.max(
-                    g.target_amount - g.current_amount,
-                    0,
-                  );
-                  const dailyNeeded = Math.ceil(remainingAmt / daysDiff);
-
-                  return (
-                    <View
-                      key={g.id}
+                  <View
+                    style={[
+                      styles.modernRangeBox,
+                      {
+                        backgroundColor: THEME.surface,
+                        borderColor: `${auraColor}40`,
+                      },
+                    ]}
+                  >
+                    <Text
                       style={[
-                        styles.modernRangeBox,
-                        g.completed === 1 && {
-                          borderColor: "#48D5AE",
-                          backgroundColor: "rgba(72,213,174,0.06)",
-                        },
+                        styles.sectionTitle,
+                        { color: THEME.textPrimary, marginBottom: 10 },
                       ]}
                     >
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          marginBottom: 6,
-                        }}
-                      >
-                        <Text
-                          style={{
-                            color: "#F5F6FF",
-                            fontSize: 14,
-                            fontWeight: "700",
-                          }}
-                        >
-                          {g.title}
-                        </Text>
-                        <View
+                      Set Category Monthly Limit
+                    </Text>
+
+                    <Text style={[styles.labelSub, { color: "#FFFFFF" }]}>
+                      Select Category:
+                    </Text>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      style={{ marginBottom: 12 }}
+                    >
+                      {allExpenseCategories.map((cat) => (
+                        <TouchableOpacity
+                          key={cat}
                           style={[
-                            styles.statusBadge,
+                            styles.pillChip,
                             {
-                              backgroundColor: g.completed
-                                ? "rgba(72,213,174,0.15)"
-                                : `${auraColor}20`,
-                              borderColor: g.completed ? "#48D5AE" : auraColor,
+                              backgroundColor: THEME.surfaceElevated,
+                              borderColor: THEME.borderCard,
+                            },
+                            budgetCategory === cat && {
+                              backgroundColor: auraColor,
+                              borderColor: auraColor,
                             },
                           ]}
+                          onPress={() => setBudgetCategory(cat)}
                         >
                           <Text
                             style={[
-                              styles.statusText,
-                              { color: g.completed ? "#48D5AE" : auraColor },
+                              styles.pillChipText,
+                              {
+                                color:
+                                  budgetCategory === cat
+                                    ? isDarkMode
+                                      ? THEME.bg
+                                      : "#FFF"
+                                    : THEME.textSecondary,
+                              },
+                              budgetCategory === cat &&
+                                styles.pillChipTextActive,
                             ]}
                           >
-                            {g.completed
-                              ? "Completed 🎉"
-                              : `${daysDiff} Days Left`}
+                            {cat}
                           </Text>
-                        </View>
-                      </View>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
 
-                      <Text
-                        style={{
-                          color: "#48D5AE",
-                          fontSize: 14,
-                          fontWeight: "bold",
-                          marginBottom: 6,
-                        }}
-                      >
-                        PKR {g.current_amount.toLocaleString()} /{" "}
-                        {g.target_amount.toLocaleString()} ({progress}%)
+                    <TextInput
+                      style={[
+                        styles.input,
+                        {
+                          backgroundColor: THEME.surfaceElevated,
+                          color: THEME.textPrimary,
+                        },
+                      ]}
+                      placeholder="Monthly Limit (PKR)"
+                      placeholderTextColor={THEME.textSecondary}
+                      keyboardType="numeric"
+                      value={budgetLimitInput}
+                      onChangeText={(t) =>
+                        setBudgetLimitInput(t.replace(/[^0-9.]/g, ""))
+                      }
+                    />
+
+                    <TouchableOpacity
+                      style={[
+                        styles.addButton,
+                        { backgroundColor: auraColor, shadowColor: auraColor },
+                      ]}
+                      onPress={handleSaveBudget}
+                    >
+                      <Text style={styles.addButtonText}>
+                        Save Budget Limit
                       </Text>
+                    </TouchableOpacity>
+                  </View>
 
-                      <View
-                        style={{
-                          height: 10,
-                          backgroundColor: "#12151D",
-                          borderRadius: 5,
-                          overflow: "hidden",
-                          marginBottom: 10,
-                        }}
-                      >
+                  <Text
+                    style={[
+                      styles.sectionTitle,
+                      {
+                        color: THEME.textPrimary,
+                        marginTop: 10,
+                        marginBottom: 10,
+                      },
+                    ]}
+                  >
+                    Active Budgets & Progress
+                  </Text>
+                  {budgets.length === 0 ? (
+                    <EmptyState
+                      title="No Budget Limits Configured"
+                      subtitle="Select a spending category above and set a monthly PKR cap."
+                      auraColor={auraColor}
+                      isDark={isDarkMode}
+                    />
+                  ) : (
+                    budgets.map((b: any) => {
+                      const spent = monthlyMetrics.catMap[b.category] || 0;
+                      const ratio = Math.min(
+                        Math.round((spent / b.monthly_limit) * 100),
+                        100,
+                      );
+                      const isWarning = ratio >= 80;
+                      const isExceeded = ratio >= 100;
+
+                      return (
                         <View
-                          style={{
-                            width: `${progress}%`,
-                            height: "100%",
-                            backgroundColor: g.completed
-                              ? "#48D5AE"
-                              : auraColor,
-                            borderRadius: 5,
-                          }}
-                        />
-                      </View>
-
-                      {!g.completed && (
-                        <Text
-                          style={{
-                            color: "#A7ADC0",
-                            fontSize: 11,
-                            marginBottom: 12,
-                          }}
-                        >
-                          💡 Save{" "}
-                          <Text
-                            style={{ color: "#F5F6FF", fontWeight: "bold" }}
-                          >
-                            PKR {dailyNeeded.toLocaleString()}
-                          </Text>{" "}
-                          every day to hit your goal on time! (Target Date:{" "}
-                          {g.target_date})
-                        </Text>
-                      )}
-
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          justifyContent: "flex-end",
-                          alignItems: "center",
-                        }}
-                      >
-                        <TouchableOpacity
+                          key={b.id}
                           style={[
-                            styles.payBillBtn,
+                            styles.modernRangeBox,
                             {
-                              backgroundColor: "#54A9FF",
-                              paddingVertical: 8,
-                              paddingHorizontal: 12,
-                              marginRight: 8,
+                              backgroundColor: THEME.surface,
+                              borderColor: THEME.borderCard,
+                            },
+                            isExceeded && {
+                              borderColor: THEME.negative,
+                              backgroundColor: "rgba(255,94,126,0.06)",
                             },
                           ]}
-                          onPress={() => {
-                            setEditingGoalId(g.id);
-                            setGoalTitle(g.title);
-                            setGoalTargetAmount(g.target_amount.toString());
-                            if (g.target_date) {
-                              const parts = g.target_date.split("-");
-                              if (parts.length === 3) {
-                                setGoalYear(parts[0]);
-                                setGoalMonth(parts[1]);
-                                setGoalDay(parts[2]);
-                              }
-                            }
-                            setGoalModal(true);
-                          }}
                         >
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              justifyContent: "space-between",
+                              marginBottom: 6,
+                            }}
+                          >
+                            <Text
+                              style={{
+                                color: THEME.textPrimary,
+                                fontSize: 13,
+                                fontWeight: "700",
+                              }}
+                            >
+                              {b.category}
+                            </Text>
+                            <Text
+                              style={{
+                                color: isExceeded
+                                  ? THEME.negative
+                                  : isWarning
+                                    ? THEME.warning
+                                    : THEME.positive,
+                                fontSize: 13,
+                                fontWeight: "bold",
+                              }}
+                            >
+                              PKR {spent.toLocaleString()} /{" "}
+                              {b.monthly_limit.toLocaleString()} ({ratio}%)
+                            </Text>
+                          </View>
+                          <View
+                            style={[
+                              styles.progressTrack,
+                              { backgroundColor: THEME.surfaceElevated },
+                            ]}
+                          >
+                            <View
+                              style={{
+                                width: `${ratio}%`,
+                                height: "100%",
+                                backgroundColor: isExceeded
+                                  ? THEME.negative
+                                  : isWarning
+                                    ? THEME.warning
+                                    : auraColor,
+                                borderRadius: 5,
+                              }}
+                            />
+                          </View>
+                          <TouchableOpacity
+                            style={{ marginTop: 10, alignSelf: "flex-end" }}
+                            onPress={() => {
+                              deleteBudget(b.category);
+                              loadData();
+                            }}
+                          >
+                            <Text
+                              style={[
+                                styles.deleteText,
+                                { color: THEME.negative },
+                              ]}
+                            >
+                              Remove Budget
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      );
+                    })
+                  )}
+                </View>
+              )}
+
+              {/* SUB-SCREEN: SAVINGS GOALS */}
+              {moreSubTab === "goals" && (
+                <View>
+                  <View style={styles.sectionHeaderRow}>
+                    <Text
+                      style={[
+                        styles.sectionTitle,
+                        { color: THEME.textPrimary },
+                      ]}
+                    >
+                      Automated Savings Goals
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setEditingGoalId(null);
+                        setGoalTitle("");
+                        setGoalTargetAmount("");
+                        setGoalModal(true);
+                      }}
+                    >
+                      <Text style={[styles.actionLink, { color: auraColor }]}>
+                        + Create Goal
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text
+                    style={{
+                      color: THEME.textSecondary,
+                      fontSize: 12,
+                      marginBottom: 16,
+                    }}
+                  >
+                    Set target amounts and deadlines. The engine calculates your
+                    required daily savings run-rate.
+                  </Text>
+
+                  {savingsGoals.length === 0 ? (
+                    <EmptyState
+                      title="No Savings Goals Yet"
+                      subtitle="Create a target goal to calculate your daily savings run-rate."
+                      actionLabel="+ Create Goal"
+                      onAction={() => setGoalModal(true)}
+                      auraColor={auraColor}
+                      isDark={isDarkMode}
+                    />
+                  ) : (
+                    savingsGoals.map((g: any) => {
+                      const progress = Math.min(
+                        Math.round((g.current_amount / g.target_amount) * 100),
+                        100,
+                      );
+
+                      const todayMs = new Date().getTime();
+                      const targetMs = new Date(g.target_date).getTime();
+                      const daysDiff = Math.max(
+                        Math.ceil((targetMs - todayMs) / (1000 * 60 * 60 * 24)),
+                        1,
+                      );
+                      const remainingAmt = Math.max(
+                        g.target_amount - g.current_amount,
+                        0,
+                      );
+                      const dailyNeeded = Math.ceil(remainingAmt / daysDiff);
+
+                      return (
+                        <View
+                          key={g.id}
+                          style={[
+                            styles.modernRangeBox,
+                            {
+                              backgroundColor: THEME.surface,
+                              borderColor: THEME.borderCard,
+                            },
+                            g.completed === 1 && {
+                              borderColor: THEME.positive,
+                              backgroundColor: "rgba(46,229,157,0.06)",
+                            },
+                          ]}
+                        >
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                              marginBottom: 6,
+                            }}
+                          >
+                            <Text
+                              style={{
+                                color: THEME.textPrimary,
+                                fontSize: 14,
+                                fontWeight: "700",
+                              }}
+                            >
+                              {g.title}
+                            </Text>
+                            <View
+                              style={[
+                                styles.statusBadge,
+                                {
+                                  backgroundColor: g.completed
+                                    ? "rgba(46,229,157,0.15)"
+                                    : `${auraColor}20`,
+                                  borderColor: g.completed
+                                    ? THEME.positive
+                                    : auraColor,
+                                },
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.statusText,
+                                  {
+                                    color: g.completed
+                                      ? THEME.positive
+                                      : auraColor,
+                                  },
+                                ]}
+                              >
+                                {g.completed
+                                  ? "Completed 🎉"
+                                  : `${daysDiff} Days Left`}
+                              </Text>
+                            </View>
+                          </View>
+
                           <Text
                             style={{
-                              color: "#FFFFFF",
-                              fontSize: 11,
+                              color: THEME.positive,
+                              fontSize: 14,
                               fontWeight: "bold",
+                              marginBottom: 6,
                             }}
+                          >
+                            PKR {g.current_amount.toLocaleString()} /{" "}
+                            {g.target_amount.toLocaleString()} ({progress}%)
+                          </Text>
+
+                          <View
+                            style={[
+                              styles.progressTrack,
+                              {
+                                backgroundColor: THEME.surfaceElevated,
+                                marginBottom: 10,
+                              },
+                            ]}
+                          >
+                            <View
+                              style={{
+                                width: `${progress}%`,
+                                height: "100%",
+                                backgroundColor: g.completed
+                                  ? THEME.positive
+                                  : auraColor,
+                                borderRadius: 5,
+                              }}
+                            />
+                          </View>
+
+                          {!g.completed && (
+                            <Text
+                              style={{
+                                color: THEME.textSecondary,
+                                fontSize: 11,
+                                marginBottom: 12,
+                              }}
+                            >
+                              💡 Save{" "}
+                              <Text
+                                style={{
+                                  color: THEME.textPrimary,
+                                  fontWeight: "bold",
+                                }}
+                              >
+                                PKR {dailyNeeded.toLocaleString()}
+                              </Text>{" "}
+                              / day to hit target by {g.target_date}
+                            </Text>
+                          )}
+
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              justifyContent: "flex-end",
+                              alignItems: "center",
+                            }}
+                          >
+                            <TouchableOpacity
+                              style={[
+                                styles.payBillBtn,
+                                {
+                                  backgroundColor: THEME.surfaceElevated,
+                                  borderWidth: 1,
+                                  borderColor: THEME.electricCyan,
+                                  paddingVertical: 8,
+                                  paddingHorizontal: 12,
+                                  marginRight: 8,
+                                },
+                              ]}
+                              onPress={() => {
+                                setEditingGoalId(g.id);
+                                setGoalTitle(g.title);
+                                setGoalTargetAmount(g.target_amount.toString());
+                                if (g.target_date) {
+                                  const parts = g.target_date.split("-");
+                                  if (parts.length === 3) {
+                                    setGoalYear(parts[0]);
+                                    setGoalMonth(parts[1]);
+                                    setGoalDay(parts[2]);
+                                  }
+                                }
+                                setGoalModal(true);
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  color: THEME.electricCyan,
+                                  fontSize: 11,
+                                  fontWeight: "bold",
+                                }}
+                              >
+                                Edit
+                              </Text>
+                            </TouchableOpacity>
+
+                            {!g.completed && (
+                              <TouchableOpacity
+                                style={[
+                                  styles.payBillBtn,
+                                  {
+                                    backgroundColor: auraColor,
+                                    paddingVertical: 8,
+                                    paddingHorizontal: 14,
+                                    marginRight: 8,
+                                  },
+                                ]}
+                                onPress={() =>
+                                  setFundGoalModal({ visible: true, goal: g })
+                                }
+                              >
+                                <Text
+                                  style={{
+                                    color: isDarkMode ? THEME.bg : "#FFF",
+                                    fontSize: 11,
+                                    fontWeight: "800",
+                                  }}
+                                >
+                                  + Fund Goal
+                                </Text>
+                              </TouchableOpacity>
+                            )}
+                            <TouchableOpacity
+                              onPress={() => {
+                                deleteSavingsGoal(g.id);
+                                loadData();
+                              }}
+                            >
+                              <Text
+                                style={[
+                                  styles.deleteText,
+                                  { color: THEME.negative },
+                                ]}
+                              >
+                                Delete
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      );
+                    })
+                  )}
+                </View>
+              )}
+
+              {/* SUB-SCREEN: DEBTS & LOANS */}
+              {moreSubTab === "debts" && (
+                <View>
+                  <View style={styles.sectionHeaderRow}>
+                    <Text
+                      style={[
+                        styles.sectionTitle,
+                        { color: THEME.textPrimary },
+                      ]}
+                    >
+                      Smart Debt & Loan Tracker
+                    </Text>
+                    <TouchableOpacity onPress={() => setDebtModal(true)}>
+                      <Text style={[styles.actionLink, { color: auraColor }]}>
+                        + Track Loan / Debt
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text
+                    style={{
+                      color: THEME.textSecondary,
+                      fontSize: 12,
+                      marginBottom: 16,
+                    }}
+                  >
+                    Manage money lent out and debts owed. Automatically syncs
+                    with your bank accounts when settled.
+                  </Text>
+
+                  {debts.length === 0 ? (
+                    <EmptyState
+                      title="No Active Loans or Debts"
+                      subtitle="Track money lent or borrowed with automatic bank balance synchronization."
+                      actionLabel="+ Track Loan / Debt"
+                      onAction={() => setDebtModal(true)}
+                      auraColor={auraColor}
+                      isDark={isDarkMode}
+                    />
+                  ) : (
+                    debts.map((d: any) => {
+                      const acc = accounts.find((a) => a.id === d.account_id);
+                      const isLent = d.type === "lent";
+                      const isSettled = d.status === "settled";
+
+                      return (
+                        <View
+                          key={d.id}
+                          style={[
+                            styles.modernRangeBox,
+                            {
+                              backgroundColor: THEME.surface,
+                              borderColor: THEME.borderCard,
+                            },
+                            isSettled && {
+                              borderColor: THEME.positive,
+                              backgroundColor: "rgba(46,229,157,0.06)",
+                            },
+                          ]}
+                        >
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                              marginBottom: 6,
+                            }}
+                          >
+                            <Text
+                              style={{
+                                color: THEME.textPrimary,
+                                fontSize: 14,
+                                fontWeight: "700",
+                              }}
+                            >
+                              {d.title}
+                            </Text>
+                            <View
+                              style={[
+                                styles.statusBadge,
+                                {
+                                  backgroundColor: isSettled
+                                    ? "rgba(46,229,157,0.15)"
+                                    : isLent
+                                      ? `${auraColor}20`
+                                      : "rgba(255,94,126,0.15)",
+                                  borderColor: isSettled
+                                    ? THEME.positive
+                                    : isLent
+                                      ? auraColor
+                                      : THEME.negative,
+                                },
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.statusText,
+                                  {
+                                    color: isSettled
+                                      ? THEME.positive
+                                      : isLent
+                                        ? auraColor
+                                        : THEME.negative,
+                                  },
+                                ]}
+                              >
+                                {isSettled
+                                  ? "Settled ✓"
+                                  : isLent
+                                    ? "Lent (Receivable)"
+                                    : "Borrowed (Payable)"}
+                              </Text>
+                            </View>
+                          </View>
+
+                          <Text
+                            style={{
+                              color: isLent ? THEME.positive : THEME.negative,
+                              fontSize: 15,
+                              fontWeight: "bold",
+                              marginBottom: 4,
+                            }}
+                          >
+                            PKR {d.amount.toLocaleString()} • Bank:{" "}
+                            {acc?.name || "Main Wallet"}
+                          </Text>
+                          <Text
+                            style={{
+                              color: THEME.textSecondary,
+                              fontSize: 11,
+                              marginBottom: 12,
+                            }}
+                          >
+                            Due Date: {d.due_date}
+                          </Text>
+
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              justifyContent: "flex-end",
+                              alignItems: "center",
+                            }}
+                          >
+                            {!isSettled && (
+                              <TouchableOpacity
+                                style={[
+                                  styles.payBillBtn,
+                                  {
+                                    backgroundColor: auraColor,
+                                    paddingVertical: 8,
+                                    paddingHorizontal: 14,
+                                    marginRight: 8,
+                                  },
+                                ]}
+                                onPress={() => handleSettleDebt(d)}
+                              >
+                                <Text
+                                  style={{
+                                    color: isDarkMode ? THEME.bg : "#FFF",
+                                    fontSize: 11,
+                                    fontWeight: "800",
+                                  }}
+                                >
+                                  Mark Settled
+                                </Text>
+                              </TouchableOpacity>
+                            )}
+                            <TouchableOpacity
+                              onPress={() => {
+                                deleteDebt(d.id);
+                                loadData();
+                              }}
+                            >
+                              <Text
+                                style={[
+                                  styles.deleteText,
+                                  { color: THEME.negative },
+                                ]}
+                              >
+                                Delete
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      );
+                    })
+                  )}
+                </View>
+              )}
+
+              {/* SUB-SCREEN: CLIENTS */}
+              {moreSubTab === "clients" && (
+                <View>
+                  <View style={styles.sectionHeaderRow}>
+                    <Text
+                      style={[
+                        styles.sectionTitle,
+                        { color: THEME.textPrimary },
+                      ]}
+                    >
+                      Clients & Counterparties
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setEditingClient(null);
+                        setClientModal(true);
+                      }}
+                    >
+                      <Text style={[styles.actionLink, { color: auraColor }]}>
+                        + Add Client
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {clients.length === 0 ? (
+                    <EmptyState
+                      title="No Clients Added"
+                      subtitle="Save your clients to track freelance revenue and generate PDF invoices."
+                      actionLabel="+ Add Client"
+                      onAction={() => setClientModal(true)}
+                      auraColor={auraColor}
+                      isDark={isDarkMode}
+                    />
+                  ) : (
+                    clients.map((c) => (
+                      <View
+                        key={c.id}
+                        style={[
+                          styles.clientCard,
+                          {
+                            backgroundColor: THEME.surface,
+                            borderColor: THEME.borderCard,
+                          },
+                        ]}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            style={[
+                              styles.clientName,
+                              { color: THEME.textPrimary },
+                            ]}
+                          >
+                            {c.name}{" "}
+                            <Text
+                              style={[
+                                styles.clientCompany,
+                                { color: auraColor },
+                              ]}
+                            >
+                              ({c.category})
+                            </Text>
+                          </Text>
+                          <Text
+                            style={[
+                              styles.clientMeta,
+                              { color: THEME.textSecondary },
+                            ]}
+                          >
+                            {c.company} • {c.country}
+                          </Text>
+                        </View>
+                        <TouchableOpacity
+                          onPress={() => {
+                            setEditingClient(c);
+                            setClientName(c.name);
+                            setClientCompany(c.company);
+                            setClientCountry(c.country);
+                            setClientModal(true);
+                          }}
+                          style={{ marginRight: 12 }}
+                        >
+                          <Text
+                            style={[
+                              styles.editText,
+                              { color: THEME.electricCyan },
+                            ]}
                           >
                             Edit
                           </Text>
                         </TouchableOpacity>
-
-                        {!g.completed && (
-                          <TouchableOpacity
-                            style={[
-                              styles.payBillBtn,
-                              {
-                                backgroundColor: auraColor,
-                                shadowColor: auraColor,
-                                paddingVertical: 8,
-                                paddingHorizontal: 14,
-                                marginRight: 8,
-                              },
-                            ]}
-                            onPress={() =>
-                              setFundGoalModal({ visible: true, goal: g })
-                            }
-                          >
-                            <Text
-                              style={{
-                                color: "#FFFFFF",
-                                fontSize: 11,
-                                fontWeight: "bold",
-                              }}
-                            >
-                              + Fund Goal
-                            </Text>
-                          </TouchableOpacity>
-                        )}
                         <TouchableOpacity
                           onPress={() => {
-                            deleteSavingsGoal(g.id);
-                            loadData();
+                            setConfirmModal({
+                              visible: true,
+                              title: "Delete Client?",
+                              message: `Remove client "${c.name}"?`,
+                              onConfirm: () => {
+                                const removed = deleteClient(c.id);
+                                loadData();
+                                triggerUndo("Deleted client", () =>
+                                  restoreClient(removed),
+                                );
+                              },
+                            });
                           }}
-                        >
-                          <Text style={styles.deleteText}>Delete</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  );
-                })
-              )}
-            </View>
-          )}
-
-          {/* ================= TAB 5: DEBTS & LOANS ================= */}
-          {activeTab === "debts" && (
-            <View style={{ marginTop: 6 }}>
-              <View style={styles.sectionHeaderRow}>
-                <Text style={styles.sectionTitle}>
-                  Smart Debt & Loan Tracker
-                </Text>
-                <TouchableOpacity
-                  onPress={() => {
-                    triggerAuraSurge();
-                    setDebtModal(true);
-                  }}
-                >
-                  <Text style={[styles.actionLink, { color: auraColor }]}>
-                    + Track Loan / Debt
-                  </Text>
-                </TouchableOpacity>
-              </View>
-              <Text
-                style={{ color: "#A7ADC0", fontSize: 12, marginBottom: 16 }}
-              >
-                Manage money lent out and debts owed. Automatically updates your
-                bank accounts when settled or issued.
-              </Text>
-
-              {debts.length === 0 ? (
-                <Text
-                  style={{
-                    color: "#A7ADC0",
-                    fontSize: 13,
-                    textAlign: "center",
-                    marginVertical: 30,
-                  }}
-                >
-                  No active loans or debts tracked.
-                </Text>
-              ) : (
-                debts.map((d: any) => {
-                  const acc = accounts.find((a) => a.id === d.account_id);
-                  const isLent = d.type === "lent";
-                  const isSettled = d.status === "settled";
-
-                  return (
-                    <View
-                      key={d.id}
-                      style={[
-                        styles.modernRangeBox,
-                        isSettled && {
-                          borderColor: "#48D5AE",
-                          backgroundColor: "rgba(72,213,174,0.06)",
-                        },
-                      ]}
-                    >
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          marginBottom: 6,
-                        }}
-                      >
-                        <Text
-                          style={{
-                            color: "#F5F6FF",
-                            fontSize: 14,
-                            fontWeight: "700",
-                          }}
-                        >
-                          {d.title}
-                        </Text>
-                        <View
-                          style={[
-                            styles.statusBadge,
-                            {
-                              backgroundColor: isSettled
-                                ? "rgba(72,213,174,0.15)"
-                                : isLent
-                                  ? `${auraColor}20`
-                                  : "rgba(255,119,143,0.15)",
-                              borderColor: isSettled
-                                ? "#48D5AE"
-                                : isLent
-                                  ? auraColor
-                                  : "#FF778F",
-                            },
-                          ]}
                         >
                           <Text
                             style={[
-                              styles.statusText,
-                              {
-                                color: isSettled
-                                  ? "#48D5AE"
-                                  : isLent
-                                    ? auraColor
-                                    : "#FF778F",
-                              },
+                              styles.deleteText,
+                              { color: THEME.negative },
                             ]}
                           >
-                            {isSettled
-                              ? "Settled ✓"
-                              : isLent
-                                ? "Lent (Receivable)"
-                                : "Borrowed (Payable)"}
+                            Delete
                           </Text>
-                        </View>
-                      </View>
-
-                      <Text
-                        style={{
-                          color: isLent ? "#48D5AE" : "#FF778F",
-                          fontSize: 15,
-                          fontWeight: "bold",
-                          marginBottom: 4,
-                        }}
-                      >
-                        PKR {d.amount.toLocaleString()} • Bank:{" "}
-                        {acc?.name || "Main Wallet"}
-                      </Text>
-                      <Text
-                        style={{
-                          color: "#A7ADC0",
-                          fontSize: 11,
-                          marginBottom: 12,
-                        }}
-                      >
-                        Due Date: {d.due_date}
-                      </Text>
-
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          justifyContent: "flex-end",
-                          alignItems: "center",
-                        }}
-                      >
-                        {!isSettled && (
-                          <TouchableOpacity
-                            style={[
-                              styles.payBillBtn,
-                              {
-                                backgroundColor: auraColor,
-                                shadowColor: auraColor,
-                                paddingVertical: 8,
-                                paddingHorizontal: 14,
-                                marginRight: 8,
-                              },
-                            ]}
-                            onPress={() => handleSettleDebt(d)}
-                          >
-                            <Text
-                              style={{
-                                color: "#FFFFFF",
-                                fontSize: 11,
-                                fontWeight: "bold",
-                              }}
-                            >
-                              Mark Settled
-                            </Text>
-                          </TouchableOpacity>
-                        )}
-                        <TouchableOpacity
-                          onPress={() => {
-                            deleteDebt(d.id);
-                            loadData();
-                          }}
-                        >
-                          <Text style={styles.deleteText}>Delete</Text>
                         </TouchableOpacity>
                       </View>
-                    </View>
-                  );
-                })
+                    ))
+                  )}
+                </View>
               )}
-            </View>
+            </>
           )}
-        </ScrollView>
+        </Animated.ScrollView>
+
+        {/* ================= BOTTOM NAVIGATION BAR ================= */}
+        <View
+          style={[
+            styles.bottomNavContainer,
+            {
+              backgroundColor: THEME.surface,
+              borderTopColor: `${auraColor}30`,
+            },
+          ]}
+        >
+          {[
+            { key: "home", label: "Home", glyph: "grid-outline" },
+            {
+              key: "activity",
+              label: "Activity",
+              glyph: "swap-vertical-outline",
+            },
+            {
+              key: "insights",
+              label: "Insights",
+              glyph: "stats-chart-outline",
+            },
+            { key: "accounts", label: "Accounts", glyph: "wallet-outline" },
+            { key: "more", label: "More", glyph: "menu-outline" },
+          ].map((item) => {
+            const active = primaryNav === item.key;
+            return (
+              <TouchableOpacity
+                key={item.key}
+                style={styles.bottomNavItem}
+                onPress={() => handlePrimaryNavChange(item.key as any)}
+                activeOpacity={0.8}
+              >
+                <View
+                  style={[
+                    styles.bottomNavPill,
+                    active && {
+                      backgroundColor: `${auraColor}22`,
+                      borderColor: `${auraColor}66`,
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name={item.glyph as any}
+                    size={18}
+                    color={active ? auraColor : THEME.textSecondary}
+                  />
+                </View>
+                <Text
+                  style={[
+                    styles.bottomNavLabel,
+                    {
+                      color: active ? THEME.textPrimary : THEME.textSecondary,
+                      fontWeight: active ? "800" : "600",
+                    },
+                  ]}
+                >
+                  {item.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
       </KeyboardAvoidingView>
 
-      {/* ================= ONBOARDING & SPOTLIGHT TUTORIAL WIZARD ================= */}
+      {/* ================= THEME STUDIO & AURA ENGINE MODAL ================= */}
+      <Modal visible={themeModal} animationType="slide" transparent={true}>
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.modalContent,
+              {
+                backgroundColor: THEME.surface,
+                borderColor: `${auraColor}50`,
+                maxHeight: "92%",
+              },
+            ]}
+          >
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 16,
+                }}
+              >
+                <Text style={[styles.modalTitle, { color: THEME.textPrimary }]}>
+                  Theme Studio & Aura Engine
+                </Text>
+                <TouchableOpacity onPress={() => setThemeModal(false)}>
+                  <Text
+                    style={{
+                      color: auraColor,
+                      fontWeight: "bold",
+                      fontSize: 13,
+                    }}
+                  >
+                    Done
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Mode Toggle */}
+              <Text style={[styles.labelSub, { color: THEME.textSecondary }]}>
+                Interface Mode:
+              </Text>
+              <View style={styles.toggleRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.toggleBtn,
+                    {
+                      backgroundColor: THEME.surfaceElevated,
+                      borderColor: THEME.borderCard,
+                    },
+                    isDarkMode && {
+                      backgroundColor: auraColor,
+                      borderColor: auraColor,
+                    },
+                  ]}
+                  onPress={() => {
+                    try {
+                      Haptics.selectionAsync();
+                    } catch (e) {}
+                    setIsDarkMode(true);
+                    persistVisualPreferences({ mode: "dark" });
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.toggleText,
+                      { color: THEME.textSecondary },
+                      isDarkMode && { color: THEME.bg, fontWeight: "bold" },
+                    ]}
+                  >
+                    Dark Cyberpunk
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.toggleBtn,
+                    {
+                      backgroundColor: THEME.surfaceElevated,
+                      borderColor: THEME.borderCard,
+                    },
+                    !isDarkMode && {
+                      backgroundColor: auraColor,
+                      borderColor: auraColor,
+                    },
+                  ]}
+                  onPress={() => {
+                    try {
+                      Haptics.selectionAsync();
+                    } catch (e) {}
+                    setIsDarkMode(false);
+                    persistVisualPreferences({ mode: "light" });
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.toggleText,
+                      { color: THEME.textSecondary },
+                      !isDarkMode && { color: "#FFF", fontWeight: "bold" },
+                    ]}
+                  >
+                    Light Luminous
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Aura Intensity Selector */}
+              <Text style={[styles.labelSub, { color: THEME.textSecondary }]}>
+                Ambient Aura Intensity:
+              </Text>
+              <View style={styles.toggleRow}>
+                {(["subtle", "balanced", "vivid", "off"] as const).map(
+                  (lvl) => (
+                    <TouchableOpacity
+                      key={lvl}
+                      style={[
+                        styles.toggleBtn,
+                        {
+                          backgroundColor: THEME.surfaceElevated,
+                          borderColor: THEME.borderCard,
+                          paddingHorizontal: 2,
+                        },
+                        auraIntensity === lvl && {
+                          backgroundColor: auraColor,
+                          borderColor: auraColor,
+                        },
+                      ]}
+                      onPress={() => {
+                        try {
+                          Haptics.selectionAsync();
+                        } catch (e) {}
+                        setAuraIntensity(lvl);
+                        persistVisualPreferences({ auraIntensity: lvl });
+                      }}
+                    >
+                      <Text
+                        style={[
+                          styles.toggleText,
+                          { color: THEME.textSecondary, fontSize: 10 },
+                          auraIntensity === lvl && {
+                            color: isDarkMode ? THEME.bg : "#FFF",
+                            fontWeight: "bold",
+                          },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {lvl.toUpperCase()}
+                      </Text>
+                    </TouchableOpacity>
+                  ),
+                )}
+              </View>
+
+              {/* Preset Gallery */}
+              <Text
+                style={[
+                  styles.sectionTitle,
+                  { color: THEME.textPrimary, marginVertical: 8 },
+                ]}
+              >
+                Preset Themes Gallery
+              </Text>
+              <View
+                style={{
+                  flexDirection: "row",
+                  flexWrap: "wrap",
+                  justifyContent: "space-between",
+                  marginBottom: 16,
+                }}
+              >
+                {Object.entries(PRESET_THEMES).map(([key, t]) => (
+                  <TouchableOpacity
+                    key={key}
+                    style={{
+                      width: "48%",
+                      backgroundColor: THEME.surfaceElevated,
+                      borderRadius: 12,
+                      padding: 12,
+                      marginBottom: 10,
+                      borderWidth: 1,
+                      borderColor:
+                        auraColor === t.primary ? t.primary : THEME.borderCard,
+                    }}
+                    onPress={() => changeAuraTheme(t.primary, t.secondary)}
+                  >
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        marginBottom: 6,
+                      }}
+                    >
+                      <View
+                        style={{
+                          width: 16,
+                          height: 16,
+                          borderRadius: 8,
+                          backgroundColor: t.primary,
+                          marginRight: 6,
+                        }}
+                      />
+                      <View
+                        style={{
+                          width: 16,
+                          height: 16,
+                          borderRadius: 8,
+                          backgroundColor: t.secondary,
+                        }}
+                      />
+                    </View>
+                    <Text
+                      style={{
+                        color: THEME.textPrimary,
+                        fontSize: 13,
+                        fontWeight: "700",
+                      }}
+                    >
+                      {t.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={[styles.labelSub, { color: THEME.textSecondary }]}>
+                Custom Spectrum Picker:
+              </Text>
+              <View
+                style={{
+                  flexDirection: "row",
+                  flexWrap: "wrap",
+                  marginBottom: 20,
+                  justifyContent: "space-between",
+                }}
+              >
+                {COLOR_SPECTRUM.map((hex) => (
+                  <TouchableOpacity
+                    key={hex}
+                    style={{
+                      width: 42,
+                      height: 42,
+                      borderRadius: 21,
+                      backgroundColor: hex,
+                      margin: 5,
+                      borderWidth: auraColor === hex ? 3 : 1,
+                      borderColor: "#FFFFFF",
+                    }}
+                    onPress={() => changeAuraTheme(hex)}
+                  />
+                ))}
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ================= STATEMENT EXPORT MODAL (With Advanced Date Range Picker) ================= */}
+      <Modal visible={exportModal} animationType="slide" transparent={true}>
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.modalContent,
+              {
+                backgroundColor: THEME.surface,
+                maxHeight: "90%",
+                borderColor: `${auraColor}50`,
+              },
+            ]}
+          >
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={[styles.modalTitle, { color: THEME.textPrimary }]}>
+                Export Statement Range (Excel/CSV)
+              </Text>
+
+              <View
+                style={[
+                  styles.modernRangeBox,
+                  {
+                    backgroundColor: THEME.surfaceElevated,
+                    borderColor: `${auraColor}40`,
+                  },
+                ]}
+              >
+                <Text style={[styles.rangeSubLabel, { color: auraColor }]}>
+                  Select Date Range:
+                </Text>
+                <View
+                  style={[
+                    styles.rangeTabsRow,
+                    {
+                      backgroundColor: THEME.bg,
+                      borderColor: THEME.borderCard,
+                    },
+                  ]}
+                >
+                  <TouchableOpacity
+                    style={[
+                      styles.rangeTabBtn,
+                      statementRangeTab === "start" && {
+                        backgroundColor: auraColor,
+                      },
+                    ]}
+                    onPress={() => setStatementRangeTab("start")}
+                  >
+                    <Text
+                      style={[
+                        styles.rangeTabText,
+                        {
+                          color:
+                            statementRangeTab === "start"
+                              ? isDarkMode
+                                ? THEME.bg
+                                : "#FFF"
+                              : THEME.textSecondary,
+                        },
+                        statementRangeTab === "start" &&
+                          styles.rangeTabTextActive,
+                      ]}
+                    >
+                      From: {exportStartDate}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.rangeTabBtn,
+                      statementRangeTab === "end" && {
+                        backgroundColor: auraColor,
+                      },
+                    ]}
+                    onPress={() => setStatementRangeTab("end")}
+                  >
+                    <Text
+                      style={[
+                        styles.rangeTabText,
+                        {
+                          color:
+                            statementRangeTab === "end"
+                              ? isDarkMode
+                                ? THEME.bg
+                                : "#FFF"
+                              : THEME.textSecondary,
+                        },
+                        statementRangeTab === "end" &&
+                          styles.rangeTabTextActive,
+                      ]}
+                    >
+                      To: {exportEndDate}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={[styles.rangeSubLabel, { color: auraColor }]}>
+                  Select Year:
+                </Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={{ marginBottom: 8 }}
+                >
+                  {["2024", "2025", "2026", "2027"].map((yr) => {
+                    const active =
+                      statementRangeTab === "start"
+                        ? exportStartDate.startsWith(yr)
+                        : exportEndDate.startsWith(yr);
+                    return (
+                      <TouchableOpacity
+                        key={yr}
+                        style={[
+                          styles.pillChip,
+                          {
+                            backgroundColor: THEME.surface,
+                            borderColor: THEME.borderCard,
+                          },
+                          active && {
+                            backgroundColor: auraColor,
+                            borderColor: auraColor,
+                          },
+                        ]}
+                        onPress={() => {
+                          if (statementRangeTab === "start") {
+                            setExportStartDate(
+                              `${yr}${exportStartDate.slice(4)}`,
+                            );
+                          } else {
+                            setExportEndDate(`${yr}${exportEndDate.slice(4)}`);
+                          }
+                        }}
+                      >
+                        <Text
+                          style={[
+                            styles.pillChipText,
+                            {
+                              color: active
+                                ? isDarkMode
+                                  ? THEME.bg
+                                  : "#FFF"
+                                : THEME.textSecondary,
+                            },
+                            active && styles.pillChipTextActive,
+                          ]}
+                        >
+                          {yr}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+
+                <Text style={[styles.rangeSubLabel, { color: auraColor }]}>
+                  Select Month:
+                </Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={{ marginBottom: 8 }}
+                >
+                  {[
+                    { m: "01", name: "Jan" },
+                    { m: "02", name: "Feb" },
+                    { m: "03", name: "Mar" },
+                    { m: "04", name: "Apr" },
+                    { m: "05", name: "May" },
+                    { m: "06", name: "Jun" },
+                    { m: "07", name: "Jul" },
+                    { m: "08", name: "Aug" },
+                    { m: "09", name: "Sep" },
+                    { m: "10", name: "Oct" },
+                    { m: "11", name: "Nov" },
+                    { m: "12", name: "Dec" },
+                  ].map((mo) => {
+                    const active =
+                      statementRangeTab === "start"
+                        ? exportStartDate.slice(5, 7) === mo.m
+                        : exportEndDate.slice(5, 7) === mo.m;
+                    return (
+                      <TouchableOpacity
+                        key={mo.m}
+                        style={[
+                          styles.pillChip,
+                          {
+                            backgroundColor: THEME.surface,
+                            borderColor: THEME.borderCard,
+                          },
+                          active && {
+                            backgroundColor: auraColor,
+                            borderColor: auraColor,
+                          },
+                        ]}
+                        onPress={() => {
+                          if (statementRangeTab === "start") {
+                            setExportStartDate(
+                              `${exportStartDate.slice(0, 4)}-${mo.m}${exportStartDate.slice(7)}`,
+                            );
+                          } else {
+                            setExportEndDate(
+                              `${exportEndDate.slice(0, 4)}-${mo.m}${exportEndDate.slice(7)}`,
+                            );
+                          }
+                        }}
+                      >
+                        <Text
+                          style={[
+                            styles.pillChipText,
+                            {
+                              color: active
+                                ? isDarkMode
+                                  ? THEME.bg
+                                  : "#FFF"
+                                : THEME.textSecondary,
+                            },
+                            active && styles.pillChipTextActive,
+                          ]}
+                        >
+                          {mo.name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={[styles.modalBtn, styles.cancelBtn]}
+                  onPress={() => setExportModal(false)}
+                >
+                  <Text
+                    style={[
+                      styles.cancelBtnText,
+                      { color: THEME.textSecondary },
+                    ]}
+                  >
+                    Cancel
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.modalBtn,
+                    {
+                      backgroundColor: auraColor,
+                      marginLeft: 8,
+                      padding: 14,
+                      borderRadius: 12,
+                      alignItems: "center",
+                      flex: 1,
+                    },
+                  ]}
+                  onPress={downloadDeviceExcelCSV}
+                >
+                  <Text style={styles.saveBtnText}>Download Excel/CSV 📥</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ================= VICTORY CELEBRATION MODAL ================= */}
+      <Modal
+        visible={victoryModal.visible}
+        animationType="fade"
+        transparent={true}
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.modalContent,
+              {
+                backgroundColor: THEME.surface,
+                alignItems: "center",
+                borderColor: THEME.positive,
+              },
+            ]}
+          >
+            <Image
+              source={VYBE_LOGO}
+              style={{ width: 56, height: 56, marginBottom: 12 }}
+              resizeMode="contain"
+            />
+            <Text
+              style={[
+                styles.modalTitle,
+                { color: THEME.positive, textAlign: "center" },
+              ]}
+            >
+              Goal Target Reached! 🎉
+            </Text>
+            <Text
+              style={{
+                color: THEME.textPrimary,
+                fontSize: 13,
+                textAlign: "center",
+                marginBottom: 20,
+              }}
+            >
+              You have completed funding for "{victoryModal.title}".
+            </Text>
+            <TouchableOpacity
+              style={[
+                styles.saveBtn,
+                {
+                  backgroundColor: THEME.positive,
+                  width: "100%",
+                  padding: 14,
+                  borderRadius: 12,
+                  alignItems: "center",
+                },
+              ]}
+              onPress={() => setVictoryModal({ visible: false, title: "" })}
+            >
+              <Text style={[styles.saveBtnText, { color: "#09090F" }]}>
+                Continue
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ================= ONBOARDING WIZARD ================= */}
       <Modal visible={onboardingModal} animationType="fade" transparent={true}>
         <View
           style={[
             styles.modalOverlay,
-            { backgroundColor: "rgba(7,8,10,0.96)" },
+            { backgroundColor: "rgba(8, 9, 13, 0.96)" },
           ]}
         >
           <View
             style={[
               styles.modalContent,
-              { alignItems: "center", paddingVertical: 32 },
+              {
+                backgroundColor: THEME.surface,
+                alignItems: "center",
+                paddingVertical: 30,
+                borderColor: `${auraColor}55`,
+              },
             ]}
           >
-            {/* STEP 1: Welcome & Name */}
+            <View style={{ marginBottom: 16 }}>
+              <BrandMark
+                size={48}
+                auraColor={auraColor}
+                showWordmark={false}
+                isDark={isDarkMode}
+              />
+            </View>
+
             {onboardStep === 1 && (
               <View style={{ width: "100%", alignItems: "center" }}>
                 <Text
                   style={[
                     styles.modalTitle,
-                    { fontSize: 24, textAlign: "center", color: auraColor },
+                    { fontSize: 22, textAlign: "center", color: auraColor },
                   ]}
                 >
-                  Welcome to VYBE Finance 🚀
+                  VYBE Manager
                 </Text>
                 <Text
                   style={{
-                    color: "#A7ADC0",
+                    color: THEME.textSecondary,
                     fontSize: 13,
                     textAlign: "center",
-                    marginBottom: 24,
-                    lineHeight: 18,
+                    marginBottom: 22,
+                    lineHeight: 19,
                   }}
                 >
-                  Your ultimate offline-first financial liquid engine. Let’s
-                  personalize your experience. What is your name?
+                  Your offline-first financial liquid engine. Let’s personalize
+                  your command center. What is your name?
                 </Text>
                 <TextInput
                   style={[
                     styles.input,
-                    { width: "100%", textAlign: "center", fontSize: 16 },
+                    {
+                      backgroundColor: THEME.surfaceElevated,
+                      color: THEME.textPrimary,
+                      width: "100%",
+                      textAlign: "center",
+                      fontSize: 15,
+                    },
                   ]}
-                  placeholder="Enter your name (e.g. Subhan Shahid)"
-                  placeholderTextColor="#A7ADC0"
+                  placeholder="Enter your name"
+                  placeholderTextColor={THEME.textSecondary}
                   value={userNameInput}
                   onChangeText={setUserNameInput}
                 />
@@ -2923,12 +5687,11 @@ export default function App() {
                     styles.saveBtn,
                     {
                       backgroundColor: auraColor,
-                      shadowColor: auraColor,
                       width: "100%",
                       padding: 16,
                       borderRadius: 14,
                       alignItems: "center",
-                      marginTop: 12,
+                      marginTop: 10,
                     },
                   ]}
                   onPress={() => {
@@ -2936,14 +5699,11 @@ export default function App() {
                     setOnboardStep(2);
                   }}
                 >
-                  <Text style={[styles.saveBtnText, { fontSize: 15 }]}>
-                    Continue ➔
-                  </Text>
+                  <Text style={styles.saveBtnText}>Continue ➔</Text>
                 </TouchableOpacity>
               </View>
             )}
 
-            {/* STEP 2: Base Currency Selection & Search */}
             {onboardStep === 2 && (
               <View style={{ width: "100%" }}>
                 <Text
@@ -2952,23 +5712,30 @@ export default function App() {
                     { fontSize: 20, textAlign: "center", color: auraColor },
                   ]}
                 >
-                  Select Your Base Currency 💱
+                  Select Base Currency
                 </Text>
                 <Text
                   style={{
-                    color: "#A7ADC0",
+                    color: THEME.textSecondary,
                     fontSize: 12,
                     textAlign: "center",
-                    marginBottom: 16,
+                    marginBottom: 14,
                   }}
                 >
-                  Search or pick your primary currency code:
+                  Search or pick your primary reporting currency:
                 </Text>
 
                 <TextInput
-                  style={[styles.input, { marginBottom: 10 }]}
-                  placeholder="Search currency code or country (e.g. USD, EUR)..."
-                  placeholderTextColor="#A7ADC0"
+                  style={[
+                    styles.input,
+                    {
+                      backgroundColor: THEME.surfaceElevated,
+                      color: THEME.textPrimary,
+                      marginBottom: 10,
+                    },
+                  ]}
+                  placeholder="Search currency code or country..."
+                  placeholderTextColor={THEME.textSecondary}
                   value={currencySearchQuery}
                   onChangeText={setCurrencySearchQuery}
                 />
@@ -2982,6 +5749,7 @@ export default function App() {
                       key={c.code}
                       style={[
                         styles.clientCard,
+                        { backgroundColor: THEME.surfaceElevated },
                         baseCurrencyChoice === c.code && {
                           borderColor: auraColor,
                           backgroundColor: `${auraColor}20`,
@@ -2995,7 +5763,7 @@ export default function App() {
                       <View style={{ flex: 1 }}>
                         <Text
                           style={{
-                            color: "#F5F6FF",
+                            color: THEME.textPrimary,
                             fontWeight: "bold",
                             fontSize: 13,
                           }}
@@ -3023,7 +5791,6 @@ export default function App() {
                     styles.saveBtn,
                     {
                       backgroundColor: auraColor,
-                      shadowColor: auraColor,
                       width: "100%",
                       padding: 16,
                       borderRadius: 14,
@@ -3032,14 +5799,13 @@ export default function App() {
                   ]}
                   onPress={() => setOnboardStep(3)}
                 >
-                  <Text style={[styles.saveBtnText, { fontSize: 15 }]}>
-                    Next: Pick Aura Theme 🎨
+                  <Text style={styles.saveBtnText}>
+                    Next: Aura Theme Spectrum
                   </Text>
                 </TouchableOpacity>
               </View>
             )}
 
-            {/* STEP 3: Theme Spectrum Picker */}
             {onboardStep === 3 && (
               <View style={{ width: "100%", alignItems: "center" }}>
                 <Text
@@ -3048,17 +5814,17 @@ export default function App() {
                     { fontSize: 20, textAlign: "center", color: auraColor },
                   ]}
                 >
-                  Choose Your Aura Theme ✨
+                  Customize Aura Accent
                 </Text>
                 <Text
                   style={{
-                    color: "#A7ADC0",
+                    color: THEME.textSecondary,
                     fontSize: 12,
                     textAlign: "center",
-                    marginBottom: 20,
+                    marginBottom: 18,
                   }}
                 >
-                  Select a cyberpunk accent glow for your engine:
+                  Choose your signature cyberpunk accent hue:
                 </Text>
 
                 <View
@@ -3066,24 +5832,20 @@ export default function App() {
                     flexDirection: "row",
                     flexWrap: "wrap",
                     justifyContent: "center",
-                    marginBottom: 24,
+                    marginBottom: 22,
                   }}
                 >
                   {COLOR_SPECTRUM.map((hex) => (
                     <TouchableOpacity
                       key={hex}
                       style={{
-                        width: 50,
-                        height: 50,
-                        borderRadius: 25,
+                        width: 46,
+                        height: 46,
+                        borderRadius: 23,
                         backgroundColor: hex,
-                        margin: 8,
+                        margin: 7,
                         borderWidth: auraColor === hex ? 3 : 1,
                         borderColor: "#FFFFFF",
-                        shadowColor: hex,
-                        shadowOffset: { width: 0, height: 2 },
-                        shadowOpacity: 0.6,
-                        shadowRadius: 8,
                       }}
                       onPress={() => changeAuraTheme(hex)}
                     />
@@ -3095,7 +5857,6 @@ export default function App() {
                     styles.saveBtn,
                     {
                       backgroundColor: auraColor,
-                      shadowColor: auraColor,
                       width: "100%",
                       padding: 16,
                       borderRadius: 14,
@@ -3104,14 +5865,11 @@ export default function App() {
                   ]}
                   onPress={() => setOnboardStep(4)}
                 >
-                  <Text style={[styles.saveBtnText, { fontSize: 15 }]}>
-                    Next: Terms & Conditions 📜
-                  </Text>
+                  <Text style={styles.saveBtnText}>Next: Legal & Privacy</Text>
                 </TouchableOpacity>
               </View>
             )}
 
-            {/* STEP 4: Terms & Conditions */}
             {onboardStep === 4 && (
               <View style={{ width: "100%" }}>
                 <Text
@@ -3120,45 +5878,37 @@ export default function App() {
                     { fontSize: 18, textAlign: "center", color: auraColor },
                   ]}
                 >
-                  Terms, Conditions & Legal Disclaimers
+                  Terms & Offline Vault Guarantee
                 </Text>
                 <ScrollView
                   style={{
-                    backgroundColor: "rgba(36,40,58,0.5)",
+                    backgroundColor: THEME.surfaceElevated,
                     borderRadius: 12,
                     padding: 12,
-                    maxHeight: 180,
+                    maxHeight: 175,
                     marginBottom: 14,
                     borderWidth: 1,
-                    borderColor: "rgba(255,255,255,0.06)",
+                    borderColor: THEME.borderCard,
                   }}
                   showsVerticalScrollIndicator={true}
                 >
                   <Text
-                    style={{ color: "#A7ADC0", fontSize: 11, lineHeight: 16 }}
+                    style={{
+                      color: THEME.textSecondary,
+                      fontSize: 11,
+                      lineHeight: 17,
+                    }}
                   >
-                    1. **Acceptance of Terms**: By downloading, installing, or
-                    operating VYBE Finance, you agree to comply with these
-                    terms. If you disagree with any provision, cease use
-                    immediately.{"\n\n"}
-                    2. **Nature of Application**: VYBE Finance is built strictly
-                    as a personal finance management tool and a helpful
-                    bookkeeping aid. It operates completely offline and locally
-                    on your device via SQLite storage.{"\n\n"}
-                    3. **Financial Disclaimer & Shiiiii**: This app acts as a
-                    digital helping hand to organize your accounts, generate
-                    invoices, track budgets, and compute savings run-rates.
-                    However, financial markets, currency conversions, and
-                    calculations are provided for informational and convenience
-                    purposes only. If you make mistakes in your manual inputs,
-                    budgeting entries, or calculations, the app can and will
-                    reflect those inputs accordingly. VYBE Finance does not
-                    assume liability for human error, data corruption, or
-                    financial losses incurred.{"\n\n"}
-                    4. **Privacy & Data Security**: Your data stays entirely in
-                    your hands. We do not host cloud servers containing your
-                    bank numbers or transactions. Use biometric locks and JSON
-                    backups responsibly.
+                    1. Acceptance of Terms: By operating VYBE Manager, you agree
+                    to these terms.{"\n\n"}
+                    2. Local-First Architecture: VYBE Manager operates 100%
+                    offline on your device via local SQLite persistence.{"\n\n"}
+                    3. Financial Accuracy Disclaimer: Exchange rates and
+                    run-rate calculations are provided as bookkeeping aids.
+                    Verify your manual entries and maintain regular JSON
+                    backups.{"\n\n"}
+                    4. Data Ownership: Your financial records never leave your
+                    device unless you explicitly export or share a statement.
                   </Text>
                 </ScrollView>
 
@@ -3185,9 +5935,13 @@ export default function App() {
                     ]}
                   />
                   <Text
-                    style={{ color: "#F5F6FF", fontSize: 12, marginLeft: 10 }}
+                    style={{
+                      color: THEME.textPrimary,
+                      fontSize: 12,
+                      marginLeft: 10,
+                    }}
                   >
-                    I have read, understood, and accept the Terms & Conditions.
+                    I accept the Terms & Offline Vault conditions.
                   </Text>
                 </TouchableOpacity>
 
@@ -3195,8 +5949,9 @@ export default function App() {
                   style={[
                     styles.saveBtn,
                     {
-                      backgroundColor: termsAccepted ? auraColor : "#2A2E43",
-                      shadowColor: auraColor,
+                      backgroundColor: termsAccepted
+                        ? auraColor
+                        : THEME.surfaceElevated,
                       width: "100%",
                       padding: 16,
                       borderRadius: 14,
@@ -3207,208 +5962,129 @@ export default function App() {
                   disabled={!termsAccepted}
                   onPress={() => setOnboardStep(5)}
                 >
-                  <Text style={[styles.saveBtnText, { fontSize: 15 }]}>
-                    Next: Interactive Feature Tutorial 🧭
-                  </Text>
+                  <Text style={styles.saveBtnText}>Next: Quick Tour ➔</Text>
                 </TouchableOpacity>
               </View>
             )}
 
-            {/* STEP 5: Detailed Spotlight Tutorial */}
             {onboardStep === 5 && (
               <View style={{ width: "100%", alignItems: "center" }}>
                 <Text
                   style={[
                     styles.modalTitle,
-                    { fontSize: 20, textAlign: "center", color: auraColor },
+                    { fontSize: 19, textAlign: "center", color: auraColor },
                   ]}
                 >
-                  Feature Spotlight Walkthrough 🎯
+                  Command Center Walkthrough
                 </Text>
 
                 <View
                   style={{
-                    backgroundColor: "rgba(26,29,41,0.9)",
+                    backgroundColor: THEME.surfaceElevated,
                     borderRadius: 16,
                     padding: 18,
                     width: "100%",
                     marginBottom: 20,
-                    borderWidth: 1.5,
-                    borderColor: auraColor,
-                    shadowColor: auraColor,
-                    shadowOffset: { width: 0, height: 4 },
-                    shadowOpacity: 0.4,
-                    shadowRadius: 12,
+                    borderWidth: 1,
+                    borderColor: `${auraColor}66`,
                   }}
                 >
                   {tutorialStep === 1 && (
                     <>
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          marginBottom: 8,
-                        }}
-                      >
-                        <Text style={{ fontSize: 22, marginRight: 8 }}>👆</Text>
-                        <Text
-                          style={{
-                            color: auraColor,
-                            fontWeight: "bold",
-                            fontSize: 15,
-                          }}
-                        >
-                          1. Header & Hamburger Drawer
-                        </Text>
-                      </View>
                       <Text
                         style={{
-                          color: "#F5F6FF",
-                          fontSize: 12,
-                          lineHeight: 18,
-                          marginBottom: 8,
+                          color: auraColor,
+                          fontWeight: "bold",
+                          fontSize: 15,
+                          marginBottom: 6,
                         }}
                       >
-                        Located at the top-left corner. Tap the menu lines to
-                        access PDF Invoicing, Category Manager, Statement
-                        Exports, JSON Backups, and Biometric locks.
+                        1. Brand Header & Vault Drawer
                       </Text>
                       <Text
                         style={{
-                          color: "#48D5AE",
-                          fontSize: 11,
-                          fontWeight: "bold",
+                          color: THEME.textPrimary,
+                          fontSize: 12,
+                          lineHeight: 18,
                         }}
                       >
-                        📍 Pointer: Top-Left Menu Button
+                        Tap the top-left menu button anytime for PDF Invoicing,
+                        30-Day Invoice History, CSV Exports, JSON Backups, and
+                        Biometric Reset.
                       </Text>
                     </>
                   )}
                   {tutorialStep === 2 && (
                     <>
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          marginBottom: 8,
-                        }}
-                      >
-                        <Text style={{ fontSize: 22, marginRight: 8 }}>👆</Text>
-                        <Text
-                          style={{
-                            color: auraColor,
-                            fontWeight: "bold",
-                            fontSize: 15,
-                          }}
-                        >
-                          2. Net Position & Privacy Eye
-                        </Text>
-                      </View>
                       <Text
                         style={{
-                          color: "#F5F6FF",
-                          fontSize: 12,
-                          lineHeight: 18,
-                          marginBottom: 8,
+                          color: auraColor,
+                          fontWeight: "bold",
+                          fontSize: 15,
+                          marginBottom: 6,
                         }}
                       >
-                        This card computes your live net worth across all
-                        wallets and banks in real-time. Tap the eye icon 👁️ to
-                        instantly mask your balances in public.
+                        2. Net Position & Privacy Shield
                       </Text>
                       <Text
                         style={{
-                          color: "#48D5AE",
-                          fontSize: 11,
-                          fontWeight: "bold",
+                          color: THEME.textPrimary,
+                          fontSize: 12,
+                          lineHeight: 18,
                         }}
                       >
-                        📍 Pointer: Total Net Position Card
+                        Your real-time consolidated net worth and monthly
+                        cashflow sit at the top. Tap the eye icon to mask
+                        balances in public.
                       </Text>
                     </>
                   )}
                   {tutorialStep === 3 && (
                     <>
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          marginBottom: 8,
-                        }}
-                      >
-                        <Text style={{ fontSize: 22, marginRight: 8 }}>👆</Text>
-                        <Text
-                          style={{
-                            color: auraColor,
-                            fontWeight: "bold",
-                            fontSize: 15,
-                          }}
-                        >
-                          3. Fluid Navigation Tabs
-                        </Text>
-                      </View>
                       <Text
                         style={{
-                          color: "#F5F6FF",
-                          fontSize: 12,
-                          lineHeight: 18,
-                          marginBottom: 8,
+                          color: auraColor,
+                          fontWeight: "bold",
+                          fontSize: 15,
+                          marginBottom: 6,
                         }}
                       >
-                        Seamlessly switch between Dashboard, Recurring Bills,
-                        Monthly Budgets, Savings Goals, and Debts with one tap.
+                        3. Bottom Navigation Bar
                       </Text>
                       <Text
                         style={{
-                          color: "#48D5AE",
-                          fontSize: 11,
-                          fontWeight: "bold",
+                          color: THEME.textPrimary,
+                          fontSize: 12,
+                          lineHeight: 18,
                         }}
                       >
-                        📍 Pointer: Middle Navigation Bar
+                        Switch effortlessly between Home, Activity Ledger,
+                        Financial Insights, Accounts, and the More Command
+                        Suite.
                       </Text>
                     </>
                   )}
                   {tutorialStep === 4 && (
                     <>
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          marginBottom: 8,
-                        }}
-                      >
-                        <Text style={{ fontSize: 22, marginRight: 8 }}>👆</Text>
-                        <Text
-                          style={{
-                            color: auraColor,
-                            fontWeight: "bold",
-                            fontSize: 15,
-                          }}
-                        >
-                          4. Quick Action Buttons
-                        </Text>
-                      </View>
                       <Text
                         style={{
-                          color: "#F5F6FF",
-                          fontSize: 12,
-                          lineHeight: 18,
-                          marginBottom: 8,
+                          color: auraColor,
+                          fontWeight: "bold",
+                          fontSize: 15,
+                          marginBottom: 6,
                         }}
                       >
-                        Use "+ Add Transaction" to record cash inflows/outflows
-                        with live multi-currency conversion, or "+ Add Client"
-                        to set up counterparties for invoicing.
+                        4. Multi-Currency & PDF Invoicing
                       </Text>
                       <Text
                         style={{
-                          color: "#48D5AE",
-                          fontSize: 11,
-                          fontWeight: "bold",
+                          color: THEME.textPrimary,
+                          fontSize: 12,
+                          lineHeight: 18,
                         }}
                       >
-                        📍 Pointer: Main Action Row
+                        Record transactions in 20+ currencies with live FX rates
+                        and generate branded client invoices instantly.
                       </Text>
                     </>
                   )}
@@ -3419,15 +6095,25 @@ export default function App() {
                     flexDirection: "row",
                     justifyContent: "space-between",
                     width: "100%",
-                    gap: 10,
                   }}
                 >
                   {tutorialStep > 1 && (
                     <TouchableOpacity
-                      style={[styles.modalBtn, styles.cancelBtn, { flex: 1 }]}
+                      style={[
+                        styles.modalBtn,
+                        styles.cancelBtn,
+                        { flex: 1, marginRight: 8 },
+                      ]}
                       onPress={() => setTutorialStep((tutorialStep - 1) as any)}
                     >
-                      <Text style={styles.cancelBtnText}>Back</Text>
+                      <Text
+                        style={[
+                          styles.cancelBtnText,
+                          { color: THEME.textSecondary },
+                        ]}
+                      >
+                        Back
+                      </Text>
                     </TouchableOpacity>
                   )}
                   <TouchableOpacity
@@ -3435,7 +6121,6 @@ export default function App() {
                       styles.saveBtn,
                       {
                         backgroundColor: auraColor,
-                        shadowColor: auraColor,
                         flex: 2,
                         padding: 14,
                         borderRadius: 12,
@@ -3450,16 +6135,8 @@ export default function App() {
                       }
                     }}
                   >
-                    <Text
-                      style={{
-                        color: "#07080A",
-                        fontWeight: "bold",
-                        fontSize: 14,
-                      }}
-                    >
-                      {tutorialStep === 4
-                        ? "Launch VYBE Engine 🚀"
-                        : "Next Pointer ➔"}
+                    <Text style={styles.saveBtnText}>
+                      {tutorialStep === 4 ? "Launch VYBE Engine 🚀" : "Next ➔"}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -3469,1690 +6146,7 @@ export default function App() {
         </View>
       </Modal>
 
-      {/* Aura Theme Spectrum Modal */}
-      <Modal visible={themeModal} animationType="slide" transparent={true}>
-        <View style={styles.modalOverlay}>
-          <View
-            style={[styles.modalContent, { borderColor: `${auraColor}50` }]}
-          >
-            <View
-              style={{
-                flexDirection: "row",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: 16,
-              }}
-            >
-              <Text style={styles.modalTitle}>
-                Aura Lighting & Color Spectrum
-              </Text>
-              <TouchableOpacity onPress={() => setThemeModal(false)}>
-                <Text
-                  style={{ color: auraColor, fontWeight: "bold", fontSize: 13 }}
-                >
-                  Close
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            <Text style={styles.labelSub}>Select from Color Spectrum:</Text>
-            <View
-              style={{
-                flexDirection: "row",
-                flexWrap: "wrap",
-                marginBottom: 20,
-                justifyContent: "space-between",
-              }}
-            >
-              {COLOR_SPECTRUM.map((hex) => (
-                <TouchableOpacity
-                  key={hex}
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 22,
-                    backgroundColor: hex,
-                    margin: 6,
-                    borderWidth: auraColor === hex ? 3 : 1,
-                    borderColor: "#FFFFFF",
-                    shadowColor: hex,
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.5,
-                    shadowRadius: 6,
-                  }}
-                  onPress={() => changeAuraTheme(hex)}
-                />
-              ))}
-            </View>
-
-            <TouchableOpacity
-              style={[
-                styles.saveBtn,
-                {
-                  backgroundColor: auraColor,
-                  shadowColor: auraColor,
-                  padding: 16,
-                  borderRadius: 14,
-                  alignItems: "center",
-                },
-              ]}
-              onPress={pickRandomTheme}
-            >
-              <Text
-                style={{ color: "#07080A", fontWeight: "bold", fontSize: 14 }}
-              >
-                🎲 Pick Random Aura Theme
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Category Manager Modal */}
-      <Modal visible={categoryModal} animationType="slide" transparent={true}>
-        <View style={styles.modalOverlay}>
-          <View
-            style={[
-              styles.modalContent,
-              { maxHeight: "90%", borderColor: `${auraColor}50` },
-            ]}
-          >
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <View
-                style={{
-                  flexDirection: "row",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: 16,
-                }}
-              >
-                <Text style={styles.modalTitle}>Category Manager</Text>
-                <TouchableOpacity onPress={() => setCategoryModal(false)}>
-                  <Text
-                    style={{
-                      color: auraColor,
-                      fontWeight: "bold",
-                      fontSize: 13,
-                    }}
-                  >
-                    Close
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              <Text style={styles.labelSub}>Add Custom Category:</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Category Name (e.g. Marketing, Coffee)"
-                placeholderTextColor="#A7ADC0"
-                value={newCatName}
-                onChangeText={setNewCatName}
-              />
-
-              <Text style={styles.labelSub}>Category Type:</Text>
-              <View style={styles.toggleRow}>
-                <TouchableOpacity
-                  style={[
-                    styles.toggleBtn,
-                    newCatType === "out" && styles.toggleOutActive,
-                  ]}
-                  onPress={() => setNewCatType("out")}
-                >
-                  <Text
-                    style={[
-                      styles.toggleText,
-                      newCatType === "out" && styles.toggleTextActive,
-                    ]}
-                  >
-                    Expense (Out)
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.toggleBtn,
-                    newCatType === "in" && styles.toggleInActive,
-                  ]}
-                  onPress={() => setNewCatType("in")}
-                >
-                  <Text
-                    style={[
-                      styles.toggleText,
-                      newCatType === "in" && styles.toggleTextActive,
-                    ]}
-                  >
-                    Income (In)
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              <TouchableOpacity
-                style={[
-                  styles.saveBtn,
-                  {
-                    backgroundColor: auraColor,
-                    shadowColor: auraColor,
-                    padding: 14,
-                    borderRadius: 12,
-                    alignItems: "center",
-                    marginBottom: 20,
-                  },
-                ]}
-                onPress={handleSaveCategory}
-              >
-                <Text style={styles.saveBtnText}>+ Save Custom Category</Text>
-              </TouchableOpacity>
-
-              <Text style={[styles.sectionTitle, { marginBottom: 10 }]}>
-                Custom Categories ({customCategories.length})
-              </Text>
-              {customCategories.length === 0 ? (
-                <Text
-                  style={{
-                    color: "#A7ADC0",
-                    fontSize: 13,
-                    textAlign: "center",
-                    marginVertical: 20,
-                  }}
-                >
-                  No custom categories added yet.
-                </Text>
-              ) : (
-                customCategories.map((c: any) => (
-                  <View
-                    key={c.id}
-                    style={{
-                      backgroundColor: "rgba(26,29,41,0.65)",
-                      padding: 12,
-                      borderRadius: 14,
-                      marginBottom: 8,
-                      flexDirection: "row",
-                      alignItems: "center",
-                      borderWidth: 1,
-                      borderColor: "rgba(255,255,255,0.05)",
-                    }}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text
-                        style={{
-                          color: "#F5F6FF",
-                          fontSize: 13,
-                          fontWeight: "700",
-                        }}
-                      >
-                        {c.name}
-                      </Text>
-                      <Text
-                        style={{
-                          color: c.type === "in" ? "#48D5AE" : "#FF778F",
-                          fontSize: 11,
-                          fontWeight: "bold",
-                        }}
-                      >
-                        {c.type === "in" ? "Income" : "Expense"}
-                      </Text>
-                    </View>
-                    <TouchableOpacity
-                      onPress={() => {
-                        deleteCategory(c.id);
-                        loadData();
-                      }}
-                    >
-                      <Text style={styles.deleteText}>Delete</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))
-              )}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Global Currency Selector Modal */}
-      <Modal visible={currencyModal} animationType="slide" transparent={true}>
-        <View style={styles.modalOverlay}>
-          <View
-            style={[
-              styles.modalContent,
-              { maxHeight: "85%", borderColor: `${auraColor}50` },
-            ]}
-          >
-            <View
-              style={{
-                flexDirection: "row",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: 16,
-              }}
-            >
-              <Text style={styles.modalTitle}>Add Global Currency</Text>
-              <TouchableOpacity onPress={() => setCurrencyModal(false)}>
-                <Text
-                  style={{ color: auraColor, fontWeight: "bold", fontSize: 13 }}
-                >
-                  Close
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            <TextInput
-              style={styles.input}
-              placeholder="Search currency code or country..."
-              placeholderTextColor="#A7ADC0"
-              value={currencySearchQuery}
-              onChangeText={setCurrencySearchQuery}
-            />
-
-            <ScrollView
-              showsVerticalScrollIndicator={false}
-              style={{ maxHeight: 350 }}
-            >
-              {filteredCurrencies.map((c) => {
-                const isAdded = userCurrencies.includes(c.code);
-                return (
-                  <TouchableOpacity
-                    key={c.code}
-                    style={{
-                      backgroundColor: "rgba(26,29,41,0.65)",
-                      padding: 12,
-                      borderRadius: 12,
-                      marginBottom: 8,
-                      flexDirection: "row",
-                      alignItems: "center",
-                      borderWidth: 1,
-                      borderColor: "rgba(255,255,255,0.05)",
-                    }}
-                    onPress={() => {
-                      addUserCurrency(c.code);
-                      loadData();
-                      setCurrency(c.code);
-                      setCurrencyModal(false);
-                    }}
-                  >
-                    <Text style={{ fontSize: 20, marginRight: 12 }}>
-                      {c.flag}
-                    </Text>
-                    <View style={{ flex: 1 }}>
-                      <Text
-                        style={{
-                          color: "#F5F6FF",
-                          fontSize: 14,
-                          fontWeight: "bold",
-                        }}
-                      >
-                        {c.code} - {c.country}
-                      </Text>
-                    </View>
-                    <Text
-                      style={{
-                        color: isAdded ? "#48D5AE" : auraColor,
-                        fontSize: 12,
-                        fontWeight: "bold",
-                      }}
-                    >
-                      {isAdded ? "Added ✓" : "+ Add"}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Advanced PDF Invoice Generator Modal */}
-      <Modal visible={invoiceModal} animationType="slide" transparent={true}>
-        <View style={styles.modalOverlay}>
-          <View
-            style={[
-              styles.modalContent,
-              { maxHeight: "92%", borderColor: `${auraColor}50` },
-            ]}
-          >
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <View
-                style={{
-                  flexDirection: "row",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: 16,
-                }}
-              >
-                <Text style={styles.modalTitle}>
-                  Professional PDF Invoice Generator
-                </Text>
-                <TouchableOpacity onPress={() => setInvoiceModal(false)}>
-                  <Text
-                    style={{
-                      color: auraColor,
-                      fontWeight: "bold",
-                      fontSize: 13,
-                    }}
-                  >
-                    Close
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              <Text style={styles.labelSub}>Invoice Heading / Title:</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="e.g. PROFESSIONAL SERVICE INVOICE"
-                placeholderTextColor="#A7ADC0"
-                value={invoiceHeading}
-                onChangeText={setInvoiceHeading}
-              />
-
-              <Text style={styles.labelSub}>Select Client:</Text>
-              {clients.length === 0 ? (
-                <Text
-                  style={{
-                    color: "#A7ADC0",
-                    fontSize: 12,
-                    textAlign: "center",
-                    marginVertical: 10,
-                  }}
-                >
-                  No clients available. Add a client first.
-                </Text>
-              ) : (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={{ marginBottom: 12 }}
-                >
-                  {clients.map((c) => (
-                    <TouchableOpacity
-                      key={c.id}
-                      style={[
-                        styles.pillChip,
-                        invoiceClient?.id === c.id && {
-                          backgroundColor: auraColor,
-                          borderColor: auraColor,
-                        },
-                      ]}
-                      onPress={() => setInvoiceClient(c)}
-                    >
-                      <Text
-                        style={[
-                          styles.pillChipText,
-                          invoiceClient?.id === c.id &&
-                            styles.pillChipTextActive,
-                        ]}
-                      >
-                        {c.name} ({c.company})
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              )}
-
-              <Text style={styles.labelSub}>
-                Receiving Bank Account / Wallet:
-              </Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={{ marginBottom: 12 }}
-              >
-                {accounts.map((acc) => (
-                  <TouchableOpacity
-                    key={acc.id}
-                    style={[
-                      styles.pillChip,
-                      invoiceAccountId === acc.id && {
-                        backgroundColor: auraColor,
-                        borderColor: auraColor,
-                      },
-                    ]}
-                    onPress={() => setInvoiceAccountId(acc.id)}
-                  >
-                    <Text
-                      style={[
-                        styles.pillChipText,
-                        invoiceAccountId === acc.id &&
-                          styles.pillChipTextActive,
-                      ]}
-                    >
-                      {acc.name} (PKR {acc.balance.toLocaleString()})
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-
-              <Text style={styles.labelSub}>Invoice Format Style:</Text>
-              <View style={styles.toggleRow}>
-                <TouchableOpacity
-                  style={[
-                    styles.toggleBtn,
-                    invoiceMode === "bullets" && {
-                      backgroundColor: auraColor,
-                      borderColor: auraColor,
-                    },
-                  ]}
-                  onPress={() => setInvoiceMode("bullets")}
-                >
-                  <Text
-                    style={[
-                      styles.toggleText,
-                      invoiceMode === "bullets" && {
-                        color: "#07080A",
-                        fontWeight: "bold",
-                      },
-                    ]}
-                  >
-                    Bullet Points (Detailed)
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.toggleBtn,
-                    invoiceMode === "notes" && {
-                      backgroundColor: auraColor,
-                      borderColor: auraColor,
-                    },
-                  ]}
-                  onPress={() => setInvoiceMode("notes")}
-                >
-                  <Text
-                    style={[
-                      styles.toggleText,
-                      invoiceMode === "notes" && {
-                        color: "#07080A",
-                        fontWeight: "bold",
-                      },
-                    ]}
-                  >
-                    Notes (Lump Sum)
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {invoiceMode === "bullets" ? (
-                <>
-                  <View style={styles.sectionHeaderRow}>
-                    <Text style={styles.labelSub}>Work Items & Prices:</Text>
-                    <TouchableOpacity
-                      onPress={() =>
-                        setInvoiceItems([
-                          ...invoiceItems,
-                          { desc: "", price: "" },
-                        ])
-                      }
-                    >
-                      <Text style={[styles.actionLink, { color: auraColor }]}>
-                        + Add Line Item
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  {invoiceItems.map((item, idx) => (
-                    <View
-                      key={idx}
-                      style={{
-                        flexDirection: "row",
-                        marginBottom: 8,
-                        alignItems: "center",
-                      }}
-                    >
-                      <TextInput
-                        style={[
-                          styles.input,
-                          { flex: 2, marginBottom: 0, marginRight: 6 },
-                        ]}
-                        placeholder={`Item ${idx + 1} description`}
-                        placeholderTextColor="#A7ADC0"
-                        value={item.desc}
-                        onChangeText={(t) => {
-                          const updated = [...invoiceItems];
-                          updated[idx].desc = t;
-                          setInvoiceItems(updated);
-                        }}
-                      />
-                      <TextInput
-                        style={[
-                          styles.input,
-                          { flex: 1, marginBottom: 0, marginRight: 6 },
-                        ]}
-                        placeholder="Price (PKR)"
-                        placeholderTextColor="#A7ADC0"
-                        keyboardType="numeric"
-                        value={item.price}
-                        onChangeText={(t) => {
-                          const updated = [...invoiceItems];
-                          updated[idx].price = t.replace(/[^0-9.]/g, "");
-                          setInvoiceItems(updated);
-                        }}
-                      />
-                      {invoiceItems.length > 1 && (
-                        <TouchableOpacity
-                          onPress={() =>
-                            setInvoiceItems(
-                              invoiceItems.filter((_, i) => i !== idx),
-                            )
-                          }
-                        >
-                          <Text style={styles.deleteText}>X</Text>
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  ))}
-                </>
-              ) : (
-                <>
-                  <Text style={styles.labelSub}>
-                    Detailed Notes & Scope of Work:
-                  </Text>
-                  <TextInput
-                    style={[
-                      styles.input,
-                      { height: 80, textAlignVertical: "top" },
-                    ]}
-                    multiline
-                    placeholder="Describe professional services rendered..."
-                    placeholderTextColor="#A7ADC0"
-                    value={invoiceNotes}
-                    onChangeText={setInvoiceNotes}
-                  />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Total Lump-Sum Amount (PKR)"
-                    placeholderTextColor="#A7ADC0"
-                    keyboardType="numeric"
-                    value={invoiceItems[0]?.price || ""}
-                    onChangeText={(t) =>
-                      setInvoiceItems([
-                        {
-                          desc: invoiceNotes || "Services rendered",
-                          price: t.replace(/[^0-9.]/g, ""),
-                        },
-                      ])
-                    }
-                  />
-                </>
-              )}
-
-              <TouchableOpacity
-                style={[
-                  styles.saveBtn,
-                  {
-                    backgroundColor: auraColor,
-                    shadowColor: auraColor,
-                    marginTop: 14,
-                    padding: 16,
-                    borderRadius: 14,
-                    alignItems: "center",
-                  },
-                ]}
-                onPress={generateAndDownloadPDFInvoice}
-              >
-                <Text style={[styles.saveBtnText, { fontSize: 14 }]}>
-                  Download & Save to Device 📥
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.saveBtn,
-                  {
-                    backgroundColor: "#1F2438",
-                    borderColor: `${auraColor}80`,
-                    borderWidth: 1,
-                    marginTop: 8,
-                    padding: 14,
-                    borderRadius: 14,
-                    alignItems: "center",
-                  },
-                ]}
-                onPress={generateAndSharePDFInvoice}
-              >
-                <Text
-                  style={{
-                    color: "#F5F6FF",
-                    fontSize: 13,
-                    fontWeight: "600",
-                  }}
-                >
-                  Share Invoice 🔗
-                </Text>
-              </TouchableOpacity>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Invoice History Modal */}
-      <Modal
-        visible={invoiceHistoryModal}
-        animationType="slide"
-        transparent={true}
-      >
-        <View style={styles.modalOverlay}>
-          <View
-            style={[
-              styles.modalContent,
-              { maxHeight: "90%", borderColor: `${auraColor}50` },
-            ]}
-          >
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <View
-                style={{
-                  flexDirection: "row",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: 16,
-                }}
-              >
-                <Text style={styles.modalTitle}>
-                  Recent Invoices (30-Day Storage)
-                </Text>
-                <TouchableOpacity onPress={() => setInvoiceHistoryModal(false)}>
-                  <Text
-                    style={{
-                      color: auraColor,
-                      fontWeight: "bold",
-                      fontSize: 13,
-                    }}
-                  >
-                    Close
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {invoiceHistoryList.length === 0 ? (
-                <Text
-                  style={{
-                    color: "#A7ADC0",
-                    fontSize: 13,
-                    textAlign: "center",
-                    marginVertical: 30,
-                  }}
-                >
-                  No generated invoices in the past 30 days.
-                </Text>
-              ) : (
-                invoiceHistoryList.map((inv: any) => (
-                  <View key={inv.id} style={styles.modernRangeBox}>
-                    <Text
-                      style={{
-                        color: "#F5F6FF",
-                        fontSize: 13,
-                        fontWeight: "bold",
-                        marginBottom: 2,
-                      }}
-                    >
-                      {inv.heading}
-                    </Text>
-                    <Text
-                      style={{
-                        color: auraColor,
-                        fontSize: 12,
-                        marginBottom: 4,
-                      }}
-                    >
-                      Client: {inv.client_name} • PKR{" "}
-                      {inv.total_amount.toLocaleString()}
-                    </Text>
-                    <Text
-                      style={{
-                        color: "#A7ADC0",
-                        fontSize: 10,
-                        marginBottom: 10,
-                      }}
-                    >
-                      Generated: {new Date(inv.created_at).toLocaleString()}
-                    </Text>
-
-                    <View
-                      style={{
-                        flexDirection: "row",
-                        justifyContent: "flex-end",
-                        alignItems: "center",
-                        gap: 8,
-                        marginTop: 6,
-                      }}
-                    >
-                      <TouchableOpacity
-                        style={[
-                          styles.payBillBtn,
-                          {
-                            backgroundColor: auraColor,
-                            shadowColor: auraColor,
-                            paddingVertical: 8,
-                            paddingHorizontal: 12,
-                          },
-                        ]}
-                        onPress={async () => {
-                          try {
-                            const res = await downloadInvoicePdf({
-                              html: inv.html_content,
-                              fileName: `Invoice_${inv.client_name || "Client"}_${Date.now()}`,
-                            });
-                            if (!res.canceled) {
-                              Alert.alert(
-                                "Invoice Saved",
-                                "PDF invoice has been saved directly to your device storage.",
-                                [{ text: "OK" }],
-                              );
-                            }
-                          } catch (e) {
-                            if (!isUserCancelled(e)) {
-                              console.log("Download history error:", e);
-                              setErrorModal({
-                                visible: true,
-                                message: invoicePdfErrorMessage(e),
-                              });
-                            }
-                          }
-                        }}
-                      >
-                        <Text
-                          style={{
-                            color: "#FFFFFF",
-                            fontSize: 11,
-                            fontWeight: "bold",
-                          }}
-                        >
-                          Save to Device 📥
-                        </Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[
-                          styles.payBillBtn,
-                          {
-                            backgroundColor: "#1F2438",
-                            borderColor: auraColor,
-                            borderWidth: 1,
-                            paddingVertical: 8,
-                            paddingHorizontal: 12,
-                          },
-                        ]}
-                        onPress={async () => {
-                          try {
-                            await shareInvoicePdf({
-                              html: inv.html_content,
-                              fileName: `Invoice_${inv.client_name || "Client"}_${Date.now()}`,
-                              dialogTitle: "Share Past Invoice",
-                            });
-                          } catch (e) {
-                            if (!isUserCancelled(e)) {
-                              console.log("Share history error:", e);
-                              setErrorModal({
-                                visible: true,
-                                message: invoicePdfErrorMessage(e),
-                              });
-                            }
-                          }
-                        }}
-                      >
-                        <Text
-                          style={{
-                            color: "#FFFFFF",
-                            fontSize: 11,
-                            fontWeight: "bold",
-                          }}
-                        >
-                          Share 🔗
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ))
-              )}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Savings Goal Create/Edit Modal */}
-      <Modal visible={goalModal} animationType="slide" transparent={true}>
-        <View style={styles.modalOverlay}>
-          <View
-            style={[
-              styles.modalContent,
-              { maxHeight: "90%", borderColor: `${auraColor}50` },
-            ]}
-          >
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <Text style={styles.modalTitle}>
-                {editingGoalId ? "Edit Savings Goal" : "Create Savings Goal"}
-              </Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Goal Title (e.g. New GPU, Emergency Fund)"
-                placeholderTextColor="#A7ADC0"
-                value={goalTitle}
-                onChangeText={setGoalTitle}
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="Target Amount (PKR)"
-                placeholderTextColor="#A7ADC0"
-                keyboardType="numeric"
-                value={goalTargetAmount}
-                onChangeText={(t) =>
-                  setGoalTargetAmount(t.replace(/[^0-9.]/g, ""))
-                }
-              />
-
-              <Text style={styles.labelSub}>Select Target Year:</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={{ marginBottom: 8 }}
-              >
-                {["2026", "2027", "2028", "2029", "2030"].map((yr) => (
-                  <TouchableOpacity
-                    key={yr}
-                    style={[
-                      styles.pillChip,
-                      goalYear === yr && {
-                        backgroundColor: auraColor,
-                        borderColor: auraColor,
-                      },
-                    ]}
-                    onPress={() => setGoalYear(yr)}
-                  >
-                    <Text
-                      style={[
-                        styles.pillChipText,
-                        goalYear === yr && styles.pillChipTextActive,
-                      ]}
-                    >
-                      {yr}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-
-              <Text style={styles.labelSub}>Select Target Month:</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={{ marginBottom: 8 }}
-              >
-                {[
-                  { m: "01", name: "Jan" },
-                  { m: "02", name: "Feb" },
-                  { m: "03", name: "Mar" },
-                  { m: "04", name: "Apr" },
-                  { m: "05", name: "May" },
-                  { m: "06", name: "Jun" },
-                  { m: "07", name: "Jul" },
-                  { m: "08", name: "Aug" },
-                  { m: "09", name: "Sep" },
-                  { m: "10", name: "Oct" },
-                  { m: "11", name: "Nov" },
-                  { m: "12", name: "Dec" },
-                ].map((mo) => (
-                  <TouchableOpacity
-                    key={mo.m}
-                    style={[
-                      styles.pillChip,
-                      goalMonth === mo.m && {
-                        backgroundColor: auraColor,
-                        borderColor: auraColor,
-                      },
-                    ]}
-                    onPress={() => setGoalMonth(mo.m)}
-                  >
-                    <Text
-                      style={[
-                        styles.pillChipText,
-                        goalMonth === mo.m && styles.pillChipTextActive,
-                      ]}
-                    >
-                      {mo.name}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-
-              <Text style={styles.labelSub}>Select Target Day:</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={{ marginBottom: 16 }}
-              >
-                {Array.from({ length: 31 }, (_, i) =>
-                  String(i + 1).padStart(2, "0"),
-                ).map((d) => (
-                  <TouchableOpacity
-                    key={d}
-                    style={[
-                      styles.pillChip,
-                      goalDay === d && {
-                        backgroundColor: auraColor,
-                        borderColor: auraColor,
-                      },
-                    ]}
-                    onPress={() => setGoalDay(d)}
-                  >
-                    <Text
-                      style={[
-                        styles.pillChipText,
-                        goalDay === d && styles.pillChipTextActive,
-                      ]}
-                    >
-                      {d}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-
-              <View style={styles.modalButtons}>
-                <TouchableOpacity
-                  style={[styles.modalBtn, styles.cancelBtn]}
-                  onPress={() => setGoalModal(false)}
-                >
-                  <Text style={styles.cancelBtnText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.modalBtn,
-                    {
-                      backgroundColor: auraColor,
-                      shadowColor: auraColor,
-                      marginLeft: 8,
-                      padding: 14,
-                      borderRadius: 12,
-                      alignItems: "center",
-                      flex: 1,
-                    },
-                  ]}
-                  onPress={handleSaveGoal}
-                >
-                  <Text
-                    style={{
-                      color: "#07080A",
-                      fontWeight: "bold",
-                      fontSize: 13,
-                    }}
-                  >
-                    Save Goal
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Fund Goal Modal */}
-      <Modal
-        visible={fundGoalModal.visible}
-        animationType="slide"
-        transparent={true}
-      >
-        <View style={styles.modalOverlay}>
-          <View
-            style={[styles.modalContent, { borderColor: `${auraColor}50` }]}
-          >
-            <Text style={styles.modalTitle}>
-              Fund Goal: {fundGoalModal.goal?.title}
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Amount to Allocate (PKR)"
-              placeholderTextColor="#A7ADC0"
-              keyboardType="numeric"
-              value={goalFundInput}
-              onChangeText={(t) => setGoalFundInput(t.replace(/[^0-9.]/g, ""))}
-            />
-
-            <Text style={styles.labelSub}>Select Funding Source Account:</Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={{ marginBottom: 12 }}
-            >
-              {accounts.map((acc) => (
-                <TouchableOpacity
-                  key={acc.id}
-                  style={[
-                    styles.pillChip,
-                    fundingAccountId === acc.id && {
-                      backgroundColor: auraColor,
-                      borderColor: auraColor,
-                    },
-                  ]}
-                  onPress={() => setFundingAccountId(acc.id)}
-                >
-                  <Text
-                    style={[
-                      styles.pillChipText,
-                      fundingAccountId === acc.id && styles.pillChipTextActive,
-                    ]}
-                  >
-                    {acc.name} (PKR {acc.balance.toLocaleString()})
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalBtn, styles.cancelBtn]}
-                onPress={() => setFundGoalModal({ visible: false, goal: null })}
-              >
-                <Text style={styles.cancelBtnText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.modalBtn,
-                  {
-                    backgroundColor: auraColor,
-                    shadowColor: auraColor,
-                    marginLeft: 8,
-                    padding: 14,
-                    borderRadius: 12,
-                    alignItems: "center",
-                    flex: 1,
-                  },
-                ]}
-                onPress={handleFundGoal}
-              >
-                <Text
-                  style={{ color: "#07080A", fontWeight: "bold", fontSize: 13 }}
-                >
-                  Allocate Funds
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Add Debt / Loan Modal */}
-      <Modal visible={debtModal} animationType="slide" transparent={true}>
-        <View style={styles.modalOverlay}>
-          <View
-            style={[
-              styles.modalContent,
-              { maxHeight: "90%", borderColor: `${auraColor}50` },
-            ]}
-          >
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <Text style={styles.modalTitle}>Track Loan or Debt</Text>
-
-              <View style={styles.toggleRow}>
-                <TouchableOpacity
-                  style={[
-                    styles.toggleBtn,
-                    debtType === "lent" && {
-                      backgroundColor: "#48D5AE",
-                      borderColor: "#48D5AE",
-                    },
-                  ]}
-                  onPress={() => setDebtType("lent")}
-                >
-                  <Text
-                    style={[
-                      styles.toggleText,
-                      debtType === "lent" && {
-                        color: "#07080A",
-                        fontWeight: "bold",
-                      },
-                    ]}
-                  >
-                    Lent Out (Receivable)
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.toggleBtn,
-                    debtType === "borrowed" && {
-                      backgroundColor: "#FF778F",
-                      borderColor: "#FF778F",
-                    },
-                  ]}
-                  onPress={() => setDebtType("borrowed")}
-                >
-                  <Text
-                    style={[
-                      styles.toggleText,
-                      debtType === "borrowed" && {
-                        color: "#07080A",
-                        fontWeight: "bold",
-                      },
-                    ]}
-                  >
-                    Borrowed (Payable)
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              <TextInput
-                style={styles.input}
-                placeholder="Title / Person Name (e.g. Ali)"
-                placeholderTextColor="#A7ADC0"
-                value={debtTitle}
-                onChangeText={setDebtTitle}
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="Amount (PKR)"
-                placeholderTextColor="#A7ADC0"
-                keyboardType="numeric"
-                value={debtAmount}
-                onChangeText={(t) => setDebtAmount(t.replace(/[^0-9.]/g, ""))}
-              />
-
-              <Text style={styles.labelSub}>Select Account Affected:</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={{ marginBottom: 12 }}
-              >
-                {accounts.map((acc) => (
-                  <TouchableOpacity
-                    key={acc.id}
-                    style={[
-                      styles.pillChip,
-                      debtAccountId === acc.id && {
-                        backgroundColor: auraColor,
-                        borderColor: auraColor,
-                      },
-                    ]}
-                    onPress={() => setDebtAccountId(acc.id)}
-                  >
-                    <Text
-                      style={[
-                        styles.pillChipText,
-                        debtAccountId === acc.id && styles.pillChipTextActive,
-                      ]}
-                    >
-                      {acc.name}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-
-              <Text style={styles.labelSub}>Select Due Year:</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={{ marginBottom: 8 }}
-              >
-                {["2026", "2027", "2028", "2029", "2030"].map((yr) => (
-                  <TouchableOpacity
-                    key={yr}
-                    style={[
-                      styles.pillChip,
-                      debtYear === yr && {
-                        backgroundColor: auraColor,
-                        borderColor: auraColor,
-                      },
-                    ]}
-                    onPress={() => setDebtYear(yr)}
-                  >
-                    <Text
-                      style={[
-                        styles.pillChipText,
-                        debtYear === yr && styles.pillChipTextActive,
-                      ]}
-                    >
-                      {yr}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-
-              <Text style={styles.labelSub}>Select Due Month:</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={{ marginBottom: 8 }}
-              >
-                {[
-                  { m: "01", name: "Jan" },
-                  { m: "02", name: "Feb" },
-                  { m: "03", name: "Mar" },
-                  { m: "04", name: "Apr" },
-                  { m: "05", name: "May" },
-                  { m: "06", name: "Jun" },
-                  { m: "07", name: "Jul" },
-                  { m: "08", name: "Aug" },
-                  { m: "09", name: "Sep" },
-                  { m: "10", name: "Oct" },
-                  { m: "11", name: "Nov" },
-                  { m: "12", name: "Dec" },
-                ].map((mo) => (
-                  <TouchableOpacity
-                    key={mo.m}
-                    style={[
-                      styles.pillChip,
-                      debtMonth === mo.m && {
-                        backgroundColor: auraColor,
-                        borderColor: auraColor,
-                      },
-                    ]}
-                    onPress={() => setDebtMonth(mo.m)}
-                  >
-                    <Text
-                      style={[
-                        styles.pillChipText,
-                        debtMonth === mo.m && styles.pillChipTextActive,
-                      ]}
-                    >
-                      {mo.name}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-
-              <Text style={styles.labelSub}>Select Due Day:</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={{ marginBottom: 16 }}
-              >
-                {Array.from({ length: 31 }, (_, i) =>
-                  String(i + 1).padStart(2, "0"),
-                ).map((d) => (
-                  <TouchableOpacity
-                    key={d}
-                    style={[
-                      styles.pillChip,
-                      debtDay === d && {
-                        backgroundColor: auraColor,
-                        borderColor: auraColor,
-                      },
-                    ]}
-                    onPress={() => setDebtDay(d)}
-                  >
-                    <Text
-                      style={[
-                        styles.pillChipText,
-                        debtDay === d && styles.pillChipTextActive,
-                      ]}
-                    >
-                      {d}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-
-              <View style={styles.modalButtons}>
-                <TouchableOpacity
-                  style={[styles.modalBtn, styles.cancelBtn]}
-                  onPress={() => setDebtModal(false)}
-                >
-                  <Text style={styles.cancelBtnText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.modalBtn,
-                    {
-                      backgroundColor: auraColor,
-                      shadowColor: auraColor,
-                      marginLeft: 8,
-                      padding: 14,
-                      borderRadius: 12,
-                      alignItems: "center",
-                      flex: 1,
-                    },
-                  ]}
-                  onPress={handleSaveDebt}
-                >
-                  <Text
-                    style={{
-                      color: "#07080A",
-                      fontWeight: "bold",
-                      fontSize: 13,
-                    }}
-                  >
-                    Save Loan Tracker
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Frosted Glass Drawer */}
-      <Modal visible={menuModal} animationType="none" transparent={true}>
-        <View style={styles.drawerBackdrop}>
-          <TouchableOpacity
-            style={{ flex: 1 }}
-            activeOpacity={1}
-            onPress={closeMenu}
-          />
-          <Animated.View
-            style={[
-              styles.drawerContent,
-              {
-                borderColor: `${auraColor}40`,
-                transform: [{ translateX: slideAnim }],
-              },
-            ]}
-          >
-            <View style={styles.drawerHeader}>
-              <View
-                style={[styles.drawerUserBadge, { backgroundColor: auraColor }]}
-              >
-                <Text
-                  style={{ color: "#07080A", fontSize: 16, fontWeight: "bold" }}
-                >
-                  V
-                </Text>
-              </View>
-              <View>
-                <Text style={styles.drawerUserName}>Subhan Shahid</Text>
-                <Text style={[styles.drawerUserSub, { color: auraColor }]}>
-                  VYBE Finance Pro
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.drawerDivider} />
-
-            <TouchableOpacity
-              style={styles.drawerNavItem}
-              activeOpacity={0.8}
-              onPress={() => {
-                closeMenu();
-                setThemeModal(true);
-              }}
-            >
-              <View style={styles.monoIconBox}>
-                <View
-                  style={[styles.monoBoxSquare, { borderColor: auraColor }]}
-                />
-              </View>
-              <Text style={styles.drawerNavText}>Change Aura Theme</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.drawerNavItem}
-              activeOpacity={0.8}
-              onPress={() => {
-                closeMenu();
-                setCategoryModal(true);
-              }}
-            >
-              <View style={styles.monoIconBox}>
-                <View
-                  style={[styles.monoCardChip, { backgroundColor: auraColor }]}
-                />
-              </View>
-              <Text style={styles.drawerNavText}>Category Manager</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.drawerNavItem}
-              activeOpacity={0.8}
-              onPress={() => {
-                closeMenu();
-                setInvoiceModal(true);
-              }}
-            >
-              <View style={styles.monoIconBox}>
-                <View
-                  style={[styles.monoInvoiceDoc, { borderColor: auraColor }]}
-                />
-                <View
-                  style={[
-                    styles.monoInvoiceLines,
-                    { backgroundColor: auraColor },
-                  ]}
-                />
-              </View>
-              <Text style={styles.drawerNavText}>Generate Client Invoice</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.drawerNavItem}
-              activeOpacity={0.8}
-              onPress={() => {
-                closeMenu();
-                setInvoiceHistoryModal(true);
-              }}
-            >
-              <View style={styles.monoIconBox}>
-                <View
-                  style={[styles.monoBoxSquare, { borderColor: auraColor }]}
-                />
-              </View>
-              <Text style={styles.drawerNavText}>
-                Invoice History (30 Days)
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.drawerNavItem}
-              activeOpacity={0.8}
-              onPress={() => {
-                closeMenu();
-                setExportModal(true);
-              }}
-            >
-              <View style={styles.monoIconBox}>
-                <View
-                  style={[
-                    styles.monoBarHorizontal,
-                    { backgroundColor: auraColor },
-                  ]}
-                />
-                <View
-                  style={[styles.monoArrowDown, { borderTopColor: auraColor }]}
-                />
-              </View>
-              <Text style={styles.drawerNavText}>
-                Export Statement (Excel/CSV)
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.drawerNavItem}
-              activeOpacity={0.8}
-              onPress={downloadBackup}
-            >
-              <View style={styles.monoIconBox}>
-                <View
-                  style={[styles.monoBoxSquare, { borderColor: auraColor }]}
-                />
-                <View
-                  style={[styles.monoBoxLid, { backgroundColor: auraColor }]}
-                />
-              </View>
-              <Text style={styles.drawerNavText}>
-                Export Full Backup (JSON)
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.drawerNavItem}
-              activeOpacity={0.8}
-              onPress={handleUploadBackup}
-            >
-              <View style={styles.monoIconBox}>
-                <View
-                  style={[styles.monoArrowDown, { borderTopColor: auraColor }]}
-                />
-              </View>
-              <Text style={styles.drawerNavText}>
-                Upload & Restore Backup (JSON)
-              </Text>
-            </TouchableOpacity>
-
-            {/* Biometric-secured Factory Reset */}
-            <TouchableOpacity
-              style={[
-                styles.drawerNavItem,
-                {
-                  borderColor: "rgba(255,119,143,0.3)",
-                  backgroundColor: "rgba(255,119,143,0.06)",
-                },
-              ]}
-              activeOpacity={0.8}
-              onPress={() => {
-                closeMenu();
-                handleClearAllData();
-              }}
-            >
-              <View style={styles.monoIconBox}>
-                <Text style={{ fontSize: 14 }}>⚠️</Text>
-              </View>
-              <Text style={[styles.drawerNavText, { color: "#FF778F" }]}>
-                Clear All Data (Biometric)
-              </Text>
-            </TouchableOpacity>
-
-            <View style={{ marginTop: "auto" }}>
-              <TouchableOpacity
-                style={styles.drawerSignOut}
-                activeOpacity={0.8}
-                onPress={closeMenu}
-              >
-                <Text
-                  style={{ color: "#FF778F", fontSize: 13, fontWeight: "600" }}
-                >
-                  Close Drawer
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </Animated.View>
-        </View>
-      </Modal>
-
-      {/* Statement Export Modal */}
-      <Modal visible={exportModal} animationType="slide" transparent={true}>
-        <View style={styles.modalOverlay}>
-          <View
-            style={[
-              styles.modalContent,
-              { maxHeight: "90%", borderColor: `${auraColor}50` },
-            ]}
-          >
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <Text style={styles.modalTitle}>
-                Export Statement Range (Excel/CSV)
-              </Text>
-
-              <View
-                style={[
-                  styles.modernRangeBox,
-                  { borderColor: `${auraColor}40` },
-                ]}
-              >
-                <View style={styles.rangeTabsRow}>
-                  <TouchableOpacity
-                    style={[
-                      styles.rangeTabBtn,
-                      rangeTab === "start" && {
-                        backgroundColor: auraColor,
-                        shadowColor: auraColor,
-                      },
-                    ]}
-                    onPress={() => setRangeTab("start")}
-                  >
-                    <Text
-                      style={[
-                        styles.rangeTabText,
-                        rangeTab === "start" && styles.rangeTabTextActive,
-                      ]}
-                    >
-                      From: {exportStartDate}
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.rangeTabBtn,
-                      rangeTab === "end" && {
-                        backgroundColor: auraColor,
-                        shadowColor: auraColor,
-                      },
-                    ]}
-                    onPress={() => setRangeTab("end")}
-                  >
-                    <Text
-                      style={[
-                        styles.rangeTabText,
-                        rangeTab === "end" && styles.rangeTabTextActive,
-                      ]}
-                    >
-                      To: {exportEndDate}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                <Text style={[styles.rangeSubLabel, { color: auraColor }]}>
-                  Select Year:
-                </Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={{ marginBottom: 8 }}
-                >
-                  {["2024", "2025", "2026", "2027"].map((yr) => {
-                    const active = exportStartDate.startsWith(yr);
-                    return (
-                      <TouchableOpacity
-                        key={yr}
-                        style={[
-                          styles.pillChip,
-                          active && {
-                            backgroundColor: auraColor,
-                            borderColor: auraColor,
-                          },
-                        ]}
-                        onPress={() => setExportStartDate(`${yr}-10-01`)}
-                      >
-                        <Text
-                          style={[
-                            styles.pillChipText,
-                            active && styles.pillChipTextActive,
-                          ]}
-                        >
-                          {yr}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-
-              <View style={styles.modalButtons}>
-                <TouchableOpacity
-                  style={[styles.modalBtn, styles.cancelBtn]}
-                  onPress={() => setExportModal(false)}
-                >
-                  <Text style={styles.cancelBtnText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.modalBtn,
-                    {
-                      backgroundColor: auraColor,
-                      shadowColor: auraColor,
-                      marginLeft: 8,
-                      padding: 14,
-                      borderRadius: 12,
-                      alignItems: "center",
-                      flex: 1,
-                    },
-                  ]}
-                  onPress={downloadDeviceExcelCSV}
-                >
-                  <Text
-                    style={{
-                      color: "#07080A",
-                      fontWeight: "bold",
-                      fontSize: 13,
-                    }}
-                  >
-                    Download Excel/CSV File 📥
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Error Modal */}
+      {/* ================= ERROR MODAL ================= */}
       <Modal
         visible={errorModal.visible}
         animationType="fade"
@@ -5162,24 +6156,28 @@ export default function App() {
           <View
             style={[
               styles.modalContent,
-              { alignItems: "center", borderColor: `${auraColor}50` },
+              {
+                backgroundColor: THEME.surface,
+                alignItems: "center",
+                borderColor: `${THEME.negative}60`,
+              },
             ]}
           >
             <Text
               style={[
                 styles.modalTitle,
-                { color: "#FF778F", textAlign: "center" },
+                { color: THEME.negative, textAlign: "center" },
               ]}
             >
-              Action Failed
+              Action Blocked
             </Text>
             <Text
               style={{
-                color: "#F5F6FF",
+                color: THEME.textPrimary,
                 fontSize: 13,
                 textAlign: "center",
                 marginBottom: 20,
-                lineHeight: 18,
+                lineHeight: 19,
               }}
             >
               {errorModal.message}
@@ -5189,7 +6187,6 @@ export default function App() {
                 styles.modalBtn,
                 {
                   backgroundColor: auraColor,
-                  shadowColor: auraColor,
                   width: "100%",
                   padding: 14,
                   borderRadius: 12,
@@ -5198,15 +6195,13 @@ export default function App() {
               ]}
               onPress={() => setErrorModal({ visible: false, message: "" })}
             >
-              <Text style={{ color: "#07080A", fontWeight: "bold" }}>
-                Got it
-              </Text>
+              <Text style={styles.saveBtnText}>Understood</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* Confirmation Modal */}
+      {/* ================= CONFIRMATION MODAL ================= */}
       <Modal
         visible={confirmModal.visible}
         animationType="fade"
@@ -5216,15 +6211,24 @@ export default function App() {
           <View
             style={[
               styles.modalContent,
-              { alignItems: "center", borderColor: `${auraColor}50` },
+              {
+                backgroundColor: THEME.surface,
+                alignItems: "center",
+                borderColor: `${auraColor}50`,
+              },
             ]}
           >
-            <Text style={[styles.modalTitle, { textAlign: "center" }]}>
+            <Text
+              style={[
+                styles.modalTitle,
+                { color: THEME.textPrimary, textAlign: "center" },
+              ]}
+            >
               {confirmModal.title}
             </Text>
             <Text
               style={{
-                color: "#A7ADC0",
+                color: THEME.textSecondary,
                 fontSize: 13,
                 textAlign: "center",
                 marginBottom: 20,
@@ -5232,25 +6236,68 @@ export default function App() {
             >
               {confirmModal.message}
             </Text>
+
+            {confirmModal.title === "⚠️ Clear Local Financial Data" && (
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: THEME.surfaceElevated,
+                    color: THEME.textPrimary,
+                    width: "100%",
+                    marginBottom: 18,
+                    borderColor:
+                      confirmPhraseInput === "CLEAR VYBE"
+                        ? auraColor
+                        : THEME.borderCard,
+                  },
+                ]}
+                value={confirmPhraseInput}
+                onChangeText={(value) => {
+                  confirmPhraseRef.current = value;
+                  setConfirmPhraseInput(value);
+                }}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                placeholder="Type CLEAR VYBE"
+                placeholderTextColor={THEME.textSecondary}
+                accessibilityLabel="Type CLEAR VYBE to confirm local data deletion"
+              />
+            )}
+
             <View style={styles.modalButtons}>
               <TouchableOpacity
                 style={[styles.modalBtn, styles.cancelBtn]}
-                onPress={() =>
+                onPress={() => {
+                  setConfirmPhraseInput("");
+                  confirmPhraseRef.current = "";
                   setConfirmModal({
                     visible: false,
                     title: "",
                     message: "",
                     onConfirm: () => {},
-                  })
-                }
+                  });
+                }}
               >
-                <Text style={styles.cancelBtnText}>Cancel</Text>
+                <Text
+                  style={[styles.cancelBtnText, { color: THEME.textSecondary }]}
+                >
+                  Cancel
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[
                   styles.modalBtn,
-                  { backgroundColor: "#FF778F", marginLeft: 8 },
+                  { backgroundColor: THEME.negative, marginLeft: 8 },
+                  confirmModal.title === "⚠️ Clear Local Financial Data" &&
+                  confirmPhraseInput.trim() !== "CLEAR VYBE"
+                    ? { opacity: 0.45 }
+                    : null,
                 ]}
+                disabled={
+                  confirmModal.title === "⚠️ Clear Local Financial Data" &&
+                  confirmPhraseInput.trim() !== "CLEAR VYBE"
+                }
                 onPress={() => {
                   confirmModal.onConfirm();
                   setConfirmModal({
@@ -5270,24 +6317,79 @@ export default function App() {
         </View>
       </Modal>
 
-      {/* Add Account Modal */}
+      {/* ================= ADD ACCOUNT MODAL ================= */}
       <Modal visible={accountModal} animationType="slide" transparent={true}>
         <View style={styles.modalOverlay}>
           <View
-            style={[styles.modalContent, { borderColor: `${auraColor}50` }]}
+            style={[
+              styles.modalContent,
+              { backgroundColor: THEME.surface, borderColor: `${auraColor}50` },
+            ]}
           >
-            <Text style={styles.modalTitle}>Add Bank Account or Wallet</Text>
+            <Text style={[styles.modalTitle, { color: THEME.textPrimary }]}>
+              Add Bank Account or Wallet
+            </Text>
             <TextInput
-              style={styles.input}
-              placeholder="Account Name (e.g. Easypaisa, JazzCash)"
-              placeholderTextColor="#A7ADC0"
+              style={[
+                styles.input,
+                {
+                  backgroundColor: THEME.surfaceElevated,
+                  color: THEME.textPrimary,
+                },
+              ]}
+              placeholder="Account Name (e.g. Meezan Bank, SadaPay)"
+              placeholderTextColor={THEME.textSecondary}
               value={accName}
               onChangeText={setAccName}
             />
+
+            <Text style={styles.labelSub}>Account Type:</Text>
+            <View style={styles.toggleRow}>
+              {[
+                { key: "wallet", label: "Local Wallet / Bank" },
+                { key: "platform", label: "Global Platform" },
+              ].map((t) => (
+                <TouchableOpacity
+                  key={t.key}
+                  style={[
+                    styles.toggleBtn,
+                    {
+                      backgroundColor: THEME.surfaceElevated,
+                      borderColor: THEME.borderCard,
+                    },
+                    accType === t.key && {
+                      backgroundColor: auraColor,
+                      borderColor: auraColor,
+                    },
+                  ]}
+                  onPress={() => setAccType(t.key)}
+                >
+                  <Text
+                    style={[
+                      styles.toggleText,
+                      { color: THEME.textSecondary },
+                      accType === t.key && {
+                        color: isDarkMode ? THEME.bg : "#FFF",
+                        fontWeight: "bold",
+                      },
+                    ]}
+                  >
+                    {t.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
             <TextInput
-              style={styles.input}
-              placeholder="Opening Balance"
-              placeholderTextColor="#A7ADC0"
+              style={[
+                styles.input,
+                {
+                  backgroundColor: THEME.surfaceElevated,
+                  color: THEME.textPrimary,
+                },
+              ]}
+              placeholder="Opening Balance (PKR)"
+              placeholderTextColor={THEME.textSecondary}
               keyboardType="numeric"
               value={accBalance}
               onChangeText={(t) => setAccBalance(t.replace(/[^0-9.]/g, ""))}
@@ -5297,14 +6399,17 @@ export default function App() {
                 style={[styles.modalBtn, styles.cancelBtn]}
                 onPress={() => setAccountModal(false)}
               >
-                <Text style={styles.cancelBtnText}>Cancel</Text>
+                <Text
+                  style={[styles.cancelBtnText, { color: THEME.textSecondary }]}
+                >
+                  Cancel
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[
                   styles.modalBtn,
                   {
                     backgroundColor: auraColor,
-                    shadowColor: auraColor,
                     marginLeft: 8,
                     padding: 14,
                     borderRadius: 12,
@@ -5314,35 +6419,39 @@ export default function App() {
                 ]}
                 onPress={handleSaveAccount}
               >
-                <Text
-                  style={{ color: "#07080A", fontWeight: "bold", fontSize: 13 }}
-                >
-                  Save Account
-                </Text>
+                <Text style={styles.saveBtnText}>Save Account</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
 
-      {/* Transaction Modal */}
+      {/* ================= TRANSACTION MODAL ================= */}
       <Modal visible={txModal} animationType="slide" transparent={true}>
         <View style={styles.modalOverlay}>
           <View
             style={[
               styles.modalContent,
-              { maxHeight: "90%", borderColor: `${auraColor}50` },
+              {
+                backgroundColor: THEME.surface,
+                maxHeight: "92%",
+                borderColor: `${auraColor}50`,
+              },
             ]}
           >
             <ScrollView showsVerticalScrollIndicator={false}>
-              <Text style={styles.modalTitle}>
-                {editingTx ? "Edit Transaction" : "Record Transaction"}
+              <Text style={[styles.modalTitle, { color: THEME.textPrimary }]}>
+                {editingTx ? "Edit Transaction" : "Record Ledger Entry"}
               </Text>
 
               <View style={styles.toggleRow}>
                 <TouchableOpacity
                   style={[
                     styles.toggleBtn,
+                    {
+                      backgroundColor: THEME.surfaceElevated,
+                      borderColor: THEME.borderCard,
+                    },
                     txType === "in" && styles.toggleInActive,
                   ]}
                   onPress={() => {
@@ -5353,37 +6462,47 @@ export default function App() {
                   <Text
                     style={[
                       styles.toggleText,
+                      { color: THEME.textSecondary },
                       txType === "in" && styles.toggleTextActive,
                     ]}
                   >
-                    ↗ In
+                    ↙ Inflow
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[
                     styles.toggleBtn,
+                    {
+                      backgroundColor: THEME.surfaceElevated,
+                      borderColor: THEME.borderCard,
+                    },
                     txType === "out" && styles.toggleOutActive,
                   ]}
                   onPress={() => {
                     setTxType("out");
-                    setCategory(allExpenseCategories[0] || "Groceries");
+                    setCategory(allExpenseCategories[0] || "Groceries & Food");
                   }}
                 >
                   <Text
                     style={[
                       styles.toggleText,
+                      { color: THEME.textSecondary },
                       txType === "out" && styles.toggleTextActive,
                     ]}
                   >
-                    ↘ Out
+                    ↗ Outflow
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[
                     styles.toggleBtn,
+                    {
+                      backgroundColor: THEME.surfaceElevated,
+                      borderColor: THEME.borderCard,
+                    },
                     txType === "transfer" && {
-                      backgroundColor: auraColor,
-                      borderColor: auraColor,
+                      backgroundColor: THEME.electricCyan,
+                      borderColor: THEME.electricCyan,
                     },
                   ]}
                   onPress={() => {
@@ -5394,8 +6513,9 @@ export default function App() {
                   <Text
                     style={[
                       styles.toggleText,
+                      { color: THEME.textSecondary },
                       txType === "transfer" && {
-                        color: "#07080A",
+                        color: isDarkMode ? THEME.bg : "#FFF",
                         fontWeight: "bold",
                       },
                     ]}
@@ -5406,10 +6526,10 @@ export default function App() {
               </View>
 
               <View style={styles.sectionHeaderRow}>
-                <Text style={styles.labelSub}>Select Currency:</Text>
+                <Text style={styles.labelSub}>Transaction Currency:</Text>
                 <TouchableOpacity onPress={() => setCurrencyModal(true)}>
                   <Text style={[styles.actionLink, { color: auraColor }]}>
-                    + Add Global Currency
+                    + Global Currencies
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -5424,6 +6544,10 @@ export default function App() {
                     key={cur}
                     style={[
                       styles.pillChip,
+                      {
+                        backgroundColor: THEME.surfaceElevated,
+                        borderColor: THEME.borderCard,
+                      },
                       currency === cur && {
                         backgroundColor: auraColor,
                         borderColor: auraColor,
@@ -5434,6 +6558,14 @@ export default function App() {
                     <Text
                       style={[
                         styles.pillChipText,
+                        {
+                          color:
+                            currency === cur
+                              ? isDarkMode
+                                ? THEME.bg
+                                : "#FFF"
+                              : THEME.textSecondary,
+                        },
                         currency === cur && styles.pillChipTextActive,
                       ]}
                     >
@@ -5447,22 +6579,25 @@ export default function App() {
                 <View
                   style={{
                     marginBottom: 12,
-                    backgroundColor: "rgba(26,29,41,0.65)",
+                    backgroundColor: THEME.surfaceElevated,
                     padding: 12,
                     borderRadius: 12,
                     borderWidth: 1,
-                    borderColor: "rgba(255,255,255,0.06)",
+                    borderColor: THEME.borderCard,
                   }}
                 >
                   <Text
-                    style={{ color: "#48D5AE", fontSize: 11, marginBottom: 4 }}
+                    style={{
+                      color: THEME.positive,
+                      fontSize: 11,
+                      marginBottom: 4,
+                    }}
                   >
-                    Live Google Exchange Rate: 1 {currency} ={" "}
-                    {getLiveRate(currency)} PKR
+                    Live FX Rate: 1 {currency} = {getLiveRate(currency)} PKR
                   </Text>
 
                   <TouchableOpacity
-                    style={{ marginVertical: 6 }}
+                    style={{ marginVertical: 4 }}
                     onPress={() => setOverrideRateActive(!overrideRateActive)}
                   >
                     <Text
@@ -5474,15 +6609,23 @@ export default function App() {
                     >
                       {overrideRateActive
                         ? "✓ Using Custom Net Rate"
-                        : "+ How much are you getting really? (Custom Rate)"}
+                        : "+ Override with custom bank/platform rate"}
                     </Text>
                   </TouchableOpacity>
 
                   {overrideRateActive && (
                     <TextInput
-                      style={[styles.input, { marginTop: 4, marginBottom: 0 }]}
+                      style={[
+                        styles.input,
+                        {
+                          backgroundColor: THEME.surface,
+                          color: THEME.textPrimary,
+                          marginTop: 6,
+                          marginBottom: 0,
+                        },
+                      ]}
                       placeholder="Enter exact rate received..."
-                      placeholderTextColor="#A7ADC0"
+                      placeholderTextColor={THEME.textSecondary}
                       keyboardType="numeric"
                       value={exchangeRate}
                       onChangeText={setExchangeRate}
@@ -5492,9 +6635,15 @@ export default function App() {
               )}
 
               <TextInput
-                style={styles.input}
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: THEME.surfaceElevated,
+                    color: THEME.textPrimary,
+                  },
+                ]}
                 placeholder={`Amount (${currency})`}
-                placeholderTextColor="#A7ADC0"
+                placeholderTextColor={THEME.textSecondary}
                 keyboardType="numeric"
                 value={amountInput}
                 onChangeText={(t) => setAmountInput(t.replace(/[^0-9.]/g, ""))}
@@ -5516,6 +6665,10 @@ export default function App() {
                         key={cat}
                         style={[
                           styles.pillChip,
+                          {
+                            backgroundColor: THEME.surfaceElevated,
+                            borderColor: THEME.borderCard,
+                          },
                           category === cat && {
                             backgroundColor: auraColor,
                             borderColor: auraColor,
@@ -5526,6 +6679,14 @@ export default function App() {
                         <Text
                           style={[
                             styles.pillChipText,
+                            {
+                              color:
+                                category === cat
+                                  ? isDarkMode
+                                    ? THEME.bg
+                                    : "#FFF"
+                                  : THEME.textSecondary,
+                            },
                             category === cat && styles.pillChipTextActive,
                           ]}
                         >
@@ -5552,6 +6713,10 @@ export default function App() {
                     key={acc.id}
                     style={[
                       styles.pillChip,
+                      {
+                        backgroundColor: THEME.surfaceElevated,
+                        borderColor: THEME.borderCard,
+                      },
                       selectedAccountId === acc.id && {
                         backgroundColor: auraColor,
                         borderColor: auraColor,
@@ -5562,6 +6727,14 @@ export default function App() {
                     <Text
                       style={[
                         styles.pillChipText,
+                        {
+                          color:
+                            selectedAccountId === acc.id
+                              ? isDarkMode
+                                ? THEME.bg
+                                : "#FFF"
+                              : THEME.textSecondary,
+                        },
                         selectedAccountId === acc.id &&
                           styles.pillChipTextActive,
                       ]}
@@ -5587,9 +6760,13 @@ export default function App() {
                           key={acc.id}
                           style={[
                             styles.pillChip,
+                            {
+                              backgroundColor: THEME.surfaceElevated,
+                              borderColor: THEME.borderCard,
+                            },
                             destAccountId === acc.id && {
-                              backgroundColor: auraColor,
-                              borderColor: auraColor,
+                              backgroundColor: THEME.electricCyan,
+                              borderColor: THEME.electricCyan,
                             },
                           ]}
                           onPress={() => setDestAccountId(acc.id)}
@@ -5597,6 +6774,14 @@ export default function App() {
                           <Text
                             style={[
                               styles.pillChipText,
+                              {
+                                color:
+                                  destAccountId === acc.id
+                                    ? isDarkMode
+                                      ? THEME.bg
+                                      : "#FFF"
+                                    : THEME.textSecondary,
+                              },
                               destAccountId === acc.id &&
                                 styles.pillChipTextActive,
                             ]}
@@ -5628,9 +6813,15 @@ export default function App() {
 
                   {showQuickClientInput ? (
                     <TextInput
-                      style={styles.input}
+                      style={[
+                        styles.input,
+                        {
+                          backgroundColor: THEME.surfaceElevated,
+                          color: THEME.textPrimary,
+                        },
+                      ]}
                       placeholder="New Client Name"
-                      placeholderTextColor="#A7ADC0"
+                      placeholderTextColor={THEME.textSecondary}
                       value={quickClientName}
                       onChangeText={setQuickClientName}
                     />
@@ -5643,6 +6834,10 @@ export default function App() {
                       <TouchableOpacity
                         style={[
                           styles.pillChip,
+                          {
+                            backgroundColor: THEME.surfaceElevated,
+                            borderColor: THEME.borderCard,
+                          },
                           selectedClientId === null && {
                             backgroundColor: auraColor,
                             borderColor: auraColor,
@@ -5653,6 +6848,14 @@ export default function App() {
                         <Text
                           style={[
                             styles.pillChipText,
+                            {
+                              color:
+                                selectedClientId === null
+                                  ? isDarkMode
+                                    ? THEME.bg
+                                    : "#FFF"
+                                  : THEME.textSecondary,
+                            },
                             selectedClientId === null &&
                               styles.pillChipTextActive,
                           ]}
@@ -5665,6 +6868,10 @@ export default function App() {
                           key={c.id}
                           style={[
                             styles.pillChip,
+                            {
+                              backgroundColor: THEME.surfaceElevated,
+                              borderColor: THEME.borderCard,
+                            },
                             selectedClientId === c.id && {
                               backgroundColor: auraColor,
                               borderColor: auraColor,
@@ -5675,6 +6882,14 @@ export default function App() {
                           <Text
                             style={[
                               styles.pillChipText,
+                              {
+                                color:
+                                  selectedClientId === c.id
+                                    ? isDarkMode
+                                      ? THEME.bg
+                                      : "#FFF"
+                                    : THEME.textSecondary,
+                              },
                               selectedClientId === c.id &&
                                 styles.pillChipTextActive,
                             ]}
@@ -5689,9 +6904,15 @@ export default function App() {
               )}
 
               <TextInput
-                style={styles.input}
-                placeholder="Description (optional)"
-                placeholderTextColor="#A7ADC0"
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: THEME.surfaceElevated,
+                    color: THEME.textPrimary,
+                  },
+                ]}
+                placeholder="Memo / Description (optional)"
+                placeholderTextColor={THEME.textSecondary}
                 value={description}
                 onChangeText={setDescription}
               />
@@ -5701,14 +6922,20 @@ export default function App() {
                   style={[styles.modalBtn, styles.cancelBtn]}
                   onPress={() => setTxModal(false)}
                 >
-                  <Text style={styles.cancelBtnText}>Cancel</Text>
+                  <Text
+                    style={[
+                      styles.cancelBtnText,
+                      { color: THEME.textSecondary },
+                    ]}
+                  >
+                    Cancel
+                  </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[
                     styles.modalBtn,
                     {
                       backgroundColor: auraColor,
-                      shadowColor: auraColor,
                       marginLeft: 8,
                       padding: 14,
                       borderRadius: 12,
@@ -5718,15 +6945,7 @@ export default function App() {
                   ]}
                   onPress={handleSaveTransaction}
                 >
-                  <Text
-                    style={{
-                      color: "#07080A",
-                      fontWeight: "bold",
-                      fontSize: 13,
-                    }}
-                  >
-                    Save Entry
-                  </Text>
+                  <Text style={styles.saveBtnText}>Save Entry</Text>
                 </TouchableOpacity>
               </View>
             </ScrollView>
@@ -5734,33 +6953,54 @@ export default function App() {
         </View>
       </Modal>
 
-      {/* Client Modal */}
+      {/* ================= CLIENT MODAL ================= */}
       <Modal visible={clientModal} animationType="slide" transparent={true}>
         <View style={styles.modalOverlay}>
           <View
-            style={[styles.modalContent, { borderColor: `${auraColor}50` }]}
+            style={[
+              styles.modalContent,
+              { backgroundColor: THEME.surface, borderColor: `${auraColor}50` },
+            ]}
           >
-            <Text style={styles.modalTitle}>
-              {editingClient ? "Edit Client" : "New Client"}
+            <Text style={[styles.modalTitle, { color: THEME.textPrimary }]}>
+              {editingClient ? "Edit Client" : "New Client / Counterparty"}
             </Text>
             <TextInput
-              style={styles.input}
-              placeholder="Name"
-              placeholderTextColor="#A7ADC0"
+              style={[
+                styles.input,
+                {
+                  backgroundColor: THEME.surfaceElevated,
+                  color: THEME.textPrimary,
+                },
+              ]}
+              placeholder="Client Name"
+              placeholderTextColor={THEME.textSecondary}
               value={clientName}
               onChangeText={setClientName}
             />
             <TextInput
-              style={styles.input}
-              placeholder="Company"
-              placeholderTextColor="#A7ADC0"
+              style={[
+                styles.input,
+                {
+                  backgroundColor: THEME.surfaceElevated,
+                  color: THEME.textPrimary,
+                },
+              ]}
+              placeholder="Company / Organization"
+              placeholderTextColor={THEME.textSecondary}
               value={clientCompany}
               onChangeText={setClientCompany}
             />
             <TextInput
-              style={styles.input}
+              style={[
+                styles.input,
+                {
+                  backgroundColor: THEME.surfaceElevated,
+                  color: THEME.textPrimary,
+                },
+              ]}
               placeholder="Country"
-              placeholderTextColor="#A7ADC0"
+              placeholderTextColor={THEME.textSecondary}
               value={clientCountry}
               onChangeText={setClientCountry}
             />
@@ -5769,14 +7009,17 @@ export default function App() {
                 style={[styles.modalBtn, styles.cancelBtn]}
                 onPress={() => setClientModal(false)}
               >
-                <Text style={styles.cancelBtnText}>Cancel</Text>
+                <Text
+                  style={[styles.cancelBtnText, { color: THEME.textSecondary }]}
+                >
+                  Cancel
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[
                   styles.modalBtn,
                   {
                     backgroundColor: auraColor,
-                    shadowColor: auraColor,
                     marginLeft: 8,
                     padding: 14,
                     borderRadius: 12,
@@ -5786,14 +7029,326 @@ export default function App() {
                 ]}
                 onPress={handleSaveClient}
               >
-                <Text
-                  style={{ color: "#07080A", fontWeight: "bold", fontSize: 13 }}
-                >
-                  Save
-                </Text>
+                <Text style={styles.saveBtnText}>Save Client</Text>
               </TouchableOpacity>
             </View>
           </View>
+        </View>
+      </Modal>
+      {/* ================= FROSTED BRANDED NAVIGATION DRAWER ================= */}
+      <Modal visible={menuModal} animationType="none" transparent={true}>
+        <View style={styles.drawerBackdrop}>
+          <TouchableOpacity
+            style={{ flex: 1 }}
+            activeOpacity={1}
+            onPress={closeMenu}
+          />
+          <Animated.View
+            style={[
+              styles.drawerContent,
+              {
+                backgroundColor: THEME.surface,
+                borderColor: `${auraColor}40`,
+                transform: [{ translateX: slideAnim }],
+              },
+            ]}
+          >
+            <View
+              style={[
+                styles.drawerHeader,
+                { borderBottomColor: THEME.borderCard },
+              ]}
+            >
+              <Image
+                source={VYBE_ICON_BADGE}
+                style={styles.drawerLogoImage}
+                resizeMode="cover"
+              />
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={[styles.drawerUserName, { color: THEME.textPrimary }]}
+                >
+                  {userNameInput || "VYBE Operator"}
+                </Text>
+                <Text style={[styles.drawerUserSub, { color: auraColor }]}>
+                  VYBE MANAGER
+                </Text>
+              </View>
+            </View>
+
+            <View
+              style={[
+                styles.drawerDivider,
+                { backgroundColor: THEME.borderCard },
+              ]}
+            />
+
+            {/* Biometric App Lock Toggle Item in Hamburger Menu */}
+            <View
+              style={[
+                styles.drawerNavItem,
+                {
+                  backgroundColor: THEME.surfaceElevated,
+                  borderColor: THEME.borderCard,
+                  justifyContent: "space-between",
+                },
+              ]}
+            >
+              <View
+                style={{ flexDirection: "row", alignItems: "center", flex: 1 }}
+              >
+                <Ionicons
+                  name="finger-print-outline"
+                  size={18}
+                  color={auraColor}
+                  style={{ marginRight: 12 }}
+                />
+                <Text
+                  style={[styles.drawerNavText, { color: THEME.textPrimary }]}
+                >
+                  App Lock (Biometrics)
+                </Text>
+              </View>
+              <Switch
+                value={appLockEnabled}
+                onValueChange={handleToggleAppLock}
+                trackColor={{ false: THEME.surface, true: auraColor }}
+                thumbColor="#FFFFFF"
+              />
+            </View>
+
+            <TouchableOpacity
+              style={[
+                styles.drawerNavItem,
+                {
+                  backgroundColor: THEME.surfaceElevated,
+                  borderColor: THEME.borderCard,
+                },
+              ]}
+              activeOpacity={0.8}
+              onPress={() => {
+                closeMenu();
+                setThemeModal(true);
+              }}
+            >
+              <Ionicons
+                name="color-palette-outline"
+                size={18}
+                color={auraColor}
+                style={{ marginRight: 12 }}
+              />
+              <Text
+                style={[styles.drawerNavText, { color: THEME.textPrimary }]}
+              >
+                Theme Studio & Aura
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.drawerNavItem,
+                {
+                  backgroundColor: THEME.surfaceElevated,
+                  borderColor: THEME.borderCard,
+                },
+              ]}
+              activeOpacity={0.8}
+              onPress={() => {
+                closeMenu();
+                setCategoryModal(true);
+              }}
+            >
+              <Ionicons
+                name="pricetags-outline"
+                size={18}
+                color={THEME.warning}
+                style={{ marginRight: 12 }}
+              />
+              <Text
+                style={[styles.drawerNavText, { color: THEME.textPrimary }]}
+              >
+                Category Manager
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.drawerNavItem,
+                {
+                  backgroundColor: THEME.surfaceElevated,
+                  borderColor: THEME.borderCard,
+                },
+              ]}
+              activeOpacity={0.8}
+              onPress={() => {
+                closeMenu();
+                setInvoiceModal(true);
+              }}
+            >
+              <Feather
+                name="file-text"
+                size={18}
+                color={THEME.electricCyan}
+                style={{ marginRight: 12 }}
+              />
+              <Text
+                style={[styles.drawerNavText, { color: THEME.textPrimary }]}
+              >
+                Generate Client Invoice
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.drawerNavItem,
+                {
+                  backgroundColor: THEME.surfaceElevated,
+                  borderColor: THEME.borderCard,
+                },
+              ]}
+              activeOpacity={0.8}
+              onPress={() => {
+                closeMenu();
+                setInvoiceHistoryModal(true);
+              }}
+            >
+              <Ionicons
+                name="folder-open-outline"
+                size={18}
+                color={auraColor}
+                style={{ marginRight: 12 }}
+              />
+              <Text
+                style={[styles.drawerNavText, { color: THEME.textPrimary }]}
+              >
+                Invoice History (30 Days)
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.drawerNavItem,
+                {
+                  backgroundColor: THEME.surfaceElevated,
+                  borderColor: THEME.borderCard,
+                },
+              ]}
+              activeOpacity={0.8}
+              onPress={() => {
+                closeMenu();
+                setExportModal(true);
+              }}
+            >
+              <Feather
+                name="download"
+                size={18}
+                color={THEME.positive}
+                style={{ marginRight: 12 }}
+              />
+              <Text
+                style={[styles.drawerNavText, { color: THEME.textPrimary }]}
+              >
+                Export Statement (Excel/CSV)
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.drawerNavItem,
+                {
+                  backgroundColor: THEME.surfaceElevated,
+                  borderColor: THEME.borderCard,
+                },
+              ]}
+              activeOpacity={0.8}
+              onPress={downloadBackup}
+            >
+              <Feather
+                name="hard-drive"
+                size={18}
+                color={auraColor}
+                style={{ marginRight: 12 }}
+              />
+              <Text
+                style={[styles.drawerNavText, { color: THEME.textPrimary }]}
+              >
+                Export Full Backup (JSON)
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.drawerNavItem,
+                {
+                  backgroundColor: THEME.surfaceElevated,
+                  borderColor: THEME.borderCard,
+                },
+              ]}
+              activeOpacity={0.8}
+              onPress={handleUploadBackup}
+            >
+              <Feather
+                name="upload"
+                size={18}
+                color={THEME.electricCyan}
+                style={{ marginRight: 12 }}
+              />
+              <Text
+                style={[styles.drawerNavText, { color: THEME.textPrimary }]}
+              >
+                Upload & Restore Backup (JSON)
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.drawerNavItem,
+                {
+                  borderColor: "rgba(255,94,126,0.3)",
+                  backgroundColor: "rgba(255,94,126,0.06)",
+                },
+              ]}
+              activeOpacity={0.8}
+              onPress={() => {
+                closeMenu();
+                handleClearAllData();
+              }}
+            >
+              <Ionicons
+                name="warning-outline"
+                size={18}
+                color={THEME.negative}
+                style={{ marginRight: 12 }}
+              />
+              <Text style={[styles.drawerNavText, { color: THEME.negative }]}>
+                Clear All Data (Biometric)
+              </Text>
+            </TouchableOpacity>
+
+            <View style={{ marginTop: "auto" }}>
+              <TouchableOpacity
+                style={[
+                  styles.drawerSignOut,
+                  {
+                    backgroundColor: THEME.surfaceElevated,
+                    borderColor: THEME.borderCard,
+                  },
+                ]}
+                activeOpacity={0.8}
+                onPress={closeMenu}
+              >
+                <Text
+                  style={{
+                    color: THEME.textSecondary,
+                    fontSize: 13,
+                    fontWeight: "600",
+                  }}
+                >
+                  Close Drawer
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
         </View>
       </Modal>
     </SafeAreaView>
@@ -5801,313 +7356,380 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#07080A" },
-  scrollContent: { padding: 20, paddingBottom: 60 },
-  header: {
+  container: { flex: 1 },
+  topBarWrapper: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 16,
-    marginTop: 36,
-  },
-
-  hamburgerBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    backgroundColor: "rgba(26,29,41,0.65)",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-  },
-  hamburgerLine: { width: 16, height: 2, borderRadius: 1, marginVertical: 2.5 },
-
-  brandTitle: {
-    color: "#F5F6FF",
-    fontSize: 15,
-    fontWeight: "700",
-    letterSpacing: 0.5,
-  },
-  brandSubtitle: {
-    fontSize: 9,
-    letterSpacing: 0.5,
-    marginTop: 2,
-    fontWeight: "700",
-  },
-
-  catConfigBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  themeGearIcon: {
-    width: 12,
-    height: 12,
-    borderRadius: 3,
-    borderWidth: 1.5,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  gearInnerDot: { width: 4, height: 4, borderRadius: 2 },
-
-  mainNavTabs: {
-    flexDirection: "row",
-    backgroundColor: "rgba(26, 29, 41, 0.75)",
-    borderRadius: 16,
-    padding: 4,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-  },
-  mainNavTabBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: "center",
-    borderRadius: 12,
-  },
-  mainNavTabText: { color: "#A7ADC0", fontSize: 10, fontWeight: "600" },
-  mainNavTabTextActive: { color: "#07080A", fontWeight: "bold" },
-
-  statusBadge: {
-    paddingVertical: 3,
-    paddingHorizontal: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  statusText: { fontSize: 10, fontWeight: "700" },
-
-  payBillBtn: {
-    borderRadius: 8,
-    alignItems: "center",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-  },
-
-  drawerBackdrop: {
-    flex: 1,
-    flexDirection: "row",
-    backgroundColor: "rgba(0,0,0,0.6)",
-  },
-  drawerContent: {
-    width: 280,
-    height: "100%",
-    backgroundColor: "rgba(16, 18, 27, 0.95)",
-    borderRightWidth: 1,
-    padding: 24,
-    shadowColor: "#8279FF",
-    shadowOffset: { width: 15, height: 0 },
-    shadowOpacity: 0.35,
-    shadowRadius: 40,
-    position: "absolute",
-    left: 0,
-  },
-  drawerHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 20,
-    paddingBottom: 16,
+    paddingHorizontal: 18,
+    paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.06)",
   },
-  drawerUserBadge: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
+  brandMarkContainer: { flexDirection: "row", alignItems: "center" },
+  brandLogoWrapper: {
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 12,
-  },
-  drawerUserName: { color: "#F5F6FF", fontSize: 14, fontWeight: "700" },
-  drawerUserSub: { fontSize: 10, marginTop: 2, fontWeight: "700" },
-  drawerDivider: {
-    height: 1,
-    backgroundColor: "rgba(255,255,255,0.06)",
-    marginBottom: 12,
-  },
-
-  drawerNavItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(26, 29, 41, 0.5)",
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 14,
-    marginBottom: 8,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.04)",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
   },
-  drawerNavText: { color: "#F5F6FF", fontSize: 13, fontWeight: "600" },
-  drawerSignOut: {
-    backgroundColor: "rgba(255, 119, 143, 0.1)",
-    padding: 14,
-    borderRadius: 14,
-    alignItems: "center",
+  brandWordmark: {
+    fontSize: 15,
+    fontWeight: "900",
+    letterSpacing: 1.2,
+  },
+  brandTagPill: {
+    marginLeft: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 6,
     borderWidth: 1,
-    borderColor: "rgba(255, 119, 143, 0.2)",
   },
-
-  monoIconBox: {
-    width: 18,
-    height: 18,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
-    position: "relative",
-  },
-  monoBarHorizontal: { width: 14, height: 2, borderRadius: 1, marginBottom: 3 },
-  monoArrowDown: {
-    width: 0,
-    height: 0,
-    borderLeftWidth: 4,
-    borderLeftColor: "transparent",
-    borderRightWidth: 4,
-    borderRightColor: "transparent",
-    borderTopWidth: 5,
-  },
-  monoBoxSquare: { width: 12, height: 10, borderWidth: 1.5, borderRadius: 2 },
-  monoBoxLid: {
-    width: 8,
-    height: 2,
-    position: "absolute",
-    top: 2,
-    borderRadius: 1,
-  },
-  monoCardChip: { width: 14, height: 10, borderRadius: 2 },
-  monoInvoiceDoc: { width: 12, height: 14, borderWidth: 1.5, borderRadius: 2 },
-  monoInvoiceLines: {
-    width: 6,
-    height: 1,
-    position: "absolute",
-    top: 6,
-    left: 3,
-  },
-
-  modernRangeBox: {
-    backgroundColor: "rgba(26, 29, 41, 0.65)",
-    borderRadius: 20,
-    padding: 16,
-    marginBottom: 14,
-    borderWidth: 1,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-  },
-  rangeTabsRow: {
-    flexDirection: "row",
-    marginBottom: 12,
-    backgroundColor: "rgba(18, 21, 29, 0.8)",
-    padding: 4,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.06)",
-  },
-  rangeTabBtn: {
-    flex: 1,
-    paddingVertical: 10,
-    alignItems: "center",
-    borderRadius: 9,
-  },
-  rangeTabText: { color: "#A7ADC0", fontSize: 12, fontWeight: "600" },
-  rangeTabTextActive: { color: "#07080A", fontWeight: "bold" },
-  rangeSubLabel: {
-    fontSize: 11,
+  brandTagText: { fontSize: 8, fontWeight: "800", letterSpacing: 0.8 },
+  brandSubword: {
+    fontSize: 8.5,
     fontWeight: "600",
-    marginBottom: 4,
-    marginTop: 4,
-    letterSpacing: 0.5,
+    letterSpacing: 0.9,
+    marginTop: 1,
   },
+  hamburgerBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+  },
+  headerActionPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 7,
+    paddingHorizontal: 11,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  auraSwatchDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 },
+  headerActionText: { fontSize: 11, fontWeight: "800", letterSpacing: 0.3 },
+
+  scrollContent: { padding: 18, paddingBottom: 32 },
 
   netPositionCard: {
-    backgroundColor: "rgba(26, 29, 41, 0.65)",
-    borderRadius: 22,
-    padding: 24,
+    borderRadius: 26,
+    padding: 22,
     marginBottom: 16,
     borderWidth: 1,
     shadowOffset: { width: 0, height: 8 },
-    shadowRadius: 24,
+    shadowRadius: 18,
+  },
+  netWorthHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 10,
   },
   cardLabel: {
-    color: "#A7ADC0",
     fontSize: 10,
-    fontWeight: "600",
-    letterSpacing: 0.8,
-  },
-  amountRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginVertical: 6,
-    justifyContent: "space-between",
+    fontWeight: "700",
+    letterSpacing: 1.1,
   },
   netAmount: {
-    color: "#F5F6FF",
-    fontSize: 28,
-    fontWeight: "800",
-    letterSpacing: 0.5,
+    fontSize: 30,
+    fontWeight: "900",
+    letterSpacing: 0.3,
+    fontVariant: ["tabular-nums"],
+    marginVertical: 4,
   },
-
   eyeButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    backgroundColor: "rgba(26,29,41,0.8)",
+    width: 36,
+    height: 36,
+    borderRadius: 11,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
   },
-  eyeIconText: { fontSize: 14 },
-
   liveBadge: { flexDirection: "row", alignItems: "center", marginTop: 4 },
-  greenDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginRight: 6,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 6,
+  greenDot: { width: 6, height: 6, borderRadius: 3, marginRight: 6 },
+  liveText: { fontSize: 10, fontWeight: "600" },
+  heroMetricsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 16,
+    paddingTop: 14,
+    borderTopWidth: 1,
   },
-  liveText: { fontSize: 10, fontWeight: "700" },
+  heroMetricItem: { flex: 1 },
+  heroMetricDivider: { width: 1, height: 26, marginHorizontal: 14 },
+  heroMetricLabel: {
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 0.7,
+    marginBottom: 3,
+  },
+  heroMetricValue: {
+    fontSize: 13,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
+  },
 
-  undoContainer: {
-    backgroundColor: "rgba(26,29,41,0.95)",
-    borderRadius: 14,
-    marginBottom: 16,
-    borderWidth: 1,
-    overflow: "hidden",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-  },
-  undoBanner: {
-    padding: 12,
+  quickActionsGrid: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
+    marginBottom: 18,
   },
-  undoText: { color: "#FFFFFF", fontSize: 12, fontWeight: "600" },
-  undoBtnText: { fontSize: 12, fontWeight: "bold" },
-  undoProgressBar: { height: 3 },
+  quickActionTile: {
+    flex: 1,
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 6,
+    marginHorizontal: 3,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+  },
+  quickActionLabelPrimary: {
+    color: "#09090F",
+    fontSize: 10,
+    fontWeight: "800",
+    marginTop: 3,
+  },
+  quickActionLabel: { fontSize: 10, fontWeight: "700", marginTop: 3 },
+
+  moduleSummaryCard: {
+    width: 148,
+    borderRadius: 14,
+    padding: 13,
+    marginRight: 10,
+    borderWidth: 1,
+  },
+  moduleSummaryTitle: {
+    fontSize: 10,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  moduleSummaryCount: { fontSize: 15, fontWeight: "900", marginBottom: 2 },
+  moduleSummaryHint: { fontSize: 10 },
 
   sectionHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 8,
-    marginTop: 10,
+    marginBottom: 10,
+    marginTop: 6,
   },
-  sectionTitle: { color: "#F5F6FF", fontSize: 14, fontWeight: "700" },
-  actionLink: { fontSize: 12, fontWeight: "600" },
+  sectionTitle: { fontSize: 14, fontWeight: "800", letterSpacing: 0.2 },
+  actionLink: { fontSize: 12, fontWeight: "700" },
+  screenHeaderBlock: { marginBottom: 14 },
+  screenMainTitle: { fontSize: 20, fontWeight: "900", marginBottom: 3 },
+  screenSubTitle: { fontSize: 12, lineHeight: 17 },
+
+  accountCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 20,
+    padding: 15,
+    borderWidth: 1,
+  },
+  accountBadgeIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    marginRight: 12,
+  },
+  accName: { fontSize: 14, fontWeight: "700" },
+  accTypePill: {
+    marginLeft: 7,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 5,
+  },
+  accType: { fontSize: 8.5, fontWeight: "800", letterSpacing: 0.5 },
+  accSub: { fontSize: 11, marginTop: 2 },
+  accBalance: {
+    color: "#10B981",
+    fontSize: 14,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
+  },
+
+  txCard: {
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 8,
+    borderWidth: 1,
+  },
+  txRowTop: { flexDirection: "row", alignItems: "center" },
+  txTypeIndicator: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    marginRight: 11,
+  },
+  txTypeGlyph: { fontSize: 15, fontWeight: "900" },
+  txTitle: { fontSize: 13, fontWeight: "700", marginBottom: 2 },
+  txSub: { fontSize: 11 },
+  txAmount: { fontSize: 13, fontWeight: "800", fontVariant: ["tabular-nums"] },
+  txExpandedDetails: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+  },
+  txDetailGrid: { flexDirection: "row", justifyContent: "space-between" },
+  txDetailLabel: {
+    fontSize: 9.5,
+    fontWeight: "700",
+    letterSpacing: 0.7,
+    marginBottom: 2,
+  },
+  txDetailValue: { fontSize: 12, fontWeight: "700" },
+  txDetailMemo: { fontSize: 12, marginBottom: 12 },
+  txActionRow: { flexDirection: "row", justifyContent: "flex-end" },
+  txInlineBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  txInlineBtnText: { fontSize: 11, fontWeight: "700" },
+
+  searchBarInput: {
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 13,
+    borderWidth: 1,
+    marginBottom: 10,
+  },
+  ledgerTypeRow: { flexDirection: "row", marginBottom: 12 },
+  ledgerTypePill: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: "center",
+    borderRadius: 10,
+    marginRight: 6,
+    borderWidth: 1,
+  },
+  ledgerTypeText: { fontSize: 11, fontWeight: "700" },
+
+  insightComparisonRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 10,
+    marginBottom: 12,
+  },
+  insightBigNumber: {
+    fontSize: 17,
+    fontWeight: "900",
+    fontVariant: ["tabular-nums"],
+    marginTop: 2,
+  },
+  dualBarTrack: {
+    height: 10,
+    borderRadius: 5,
+    flexDirection: "row",
+    overflow: "hidden",
+  },
+  categoryRankCard: {
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 8,
+    borderWidth: 1,
+  },
+  categoryRankTitle: { fontSize: 13, fontWeight: "700" },
+  categoryRankAmount: {
+    fontSize: 12,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
+  },
+  progressTrack: { height: 8, borderRadius: 4, overflow: "hidden" },
+
+  hubGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+  },
+  hubTile: {
+    width: "48.5%",
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 10,
+    borderWidth: 1,
+  },
+  hubTileEmoji: { fontSize: 22, marginBottom: 8 },
+  hubTileTitle: { fontSize: 14, fontWeight: "800", marginBottom: 3 },
+  hubTileSub: { fontSize: 11 },
+
+  emptyStateBox: {
+    borderRadius: 20,
+    padding: 24,
+    alignItems: "center",
+    borderWidth: 1,
+    marginVertical: 10,
+  },
+  emptyLogoCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    marginBottom: 12,
+  },
+  emptyStateTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    marginBottom: 4,
+    textAlign: "center",
+  },
+  emptyStateSub: {
+    fontSize: 12,
+    textAlign: "center",
+    lineHeight: 17,
+    marginBottom: 14,
+  },
+  emptyStateBtn: {
+    paddingVertical: 9,
+    paddingHorizontal: 16,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  emptyStateBtnText: { fontSize: 12, fontWeight: "800" },
+
+  bottomNavContainer: {
+    flexDirection: "row",
+    borderTopWidth: 1,
+    paddingTop: 8,
+    paddingBottom: Platform.OS === "ios" ? 18 : 10,
+    paddingHorizontal: 8,
+  },
+  bottomNavItem: { flex: 1, alignItems: "center", justifyContent: "center" },
+  bottomNavPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "transparent",
+    marginBottom: 3,
+  },
+  bottomNavLabel: { fontSize: 10 },
+
+  statusBadge: {
+    paddingVertical: 2.5,
+    paddingHorizontal: 7,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  statusText: { fontSize: 9, fontWeight: "800", letterSpacing: 0.4 },
+  payBillBtn: {
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   filterBanner: {
     borderWidth: 1,
     borderRadius: 12,
@@ -6115,142 +7737,168 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     alignItems: "center",
   },
-  filterText: { fontSize: 12, fontWeight: "600" },
+  filterText: { fontSize: 12, fontWeight: "700" },
 
-  accountCard: {
+  drawerBackdrop: {
+    flex: 1,
+    flexDirection: "row",
+    backgroundColor: "rgba(0,0,0,0.68)",
+  },
+  drawerContent: {
+    width: 285,
+    height: "100%",
+    borderRightWidth: 1,
+    padding: 22,
+    position: "absolute",
+    left: 0,
+  },
+  drawerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+  },
+  drawerLogoImage: { width: 44, height: 44, borderRadius: 12, marginRight: 12 },
+  drawerUserName: { fontSize: 15, fontWeight: "800" },
+  drawerUserSub: {
+    fontSize: 9.5,
+    marginTop: 2,
+    fontWeight: "800",
+    letterSpacing: 0.7,
+  },
+  drawerDivider: { height: 1, marginBottom: 10 },
+  drawerNavItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 13,
+    paddingHorizontal: 14,
+    borderRadius: 13,
+    marginBottom: 8,
+    borderWidth: 1,
+  },
+  drawerNavText: { fontSize: 13, fontWeight: "700" },
+  drawerSignOut: {
+    padding: 13,
+    borderRadius: 13,
+    alignItems: "center",
+    borderWidth: 1,
+  },
+
+  modernRangeBox: {
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 14,
+    borderWidth: 1,
+  },
+  rangeTabsRow: {
+    flexDirection: "row",
+    marginBottom: 12,
+    padding: 4,
+    borderRadius: 11,
+    borderWidth: 1,
+  },
+  rangeTabBtn: {
+    flex: 1,
+    paddingVertical: 9,
+    alignItems: "center",
+    borderRadius: 8,
+  },
+  rangeTabText: { fontSize: 12, fontWeight: "600" },
+  rangeTabTextActive: { color: "#09090F", fontWeight: "800" },
+  rangeSubLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    marginBottom: 4,
+    marginTop: 4,
+  },
+
+  undoContainer: {
+    borderRadius: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  undoBanner: {
+    padding: 11,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    backgroundColor: "rgba(26, 29, 41, 0.65)",
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.05)",
-    shadowColor: "#8279FF",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
   },
-  accName: {
-    color: "#F5F6FF",
-    fontSize: 13,
-    fontWeight: "600",
-    marginBottom: 2,
-  },
-  accType: { color: "#A7ADC0", fontSize: 11 },
-  accSub: { color: "#A7ADC0", fontSize: 10 },
-  accBalance: { color: "#48D5AE", fontSize: 14, fontWeight: "700" },
+  undoText: { fontSize: 12, fontWeight: "600" },
+  undoBtnText: { fontSize: 12, fontWeight: "800" },
+  undoProgressBar: { height: 3 },
 
-  actionRow: { flexDirection: "row", marginVertical: 12 },
-  addButton: {
-    borderRadius: 14,
-    padding: 14,
-    alignItems: "center",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-  },
-  addButtonText: { fontSize: 13, fontWeight: "800" },
-
+  addButton: { borderRadius: 13, padding: 14, alignItems: "center" },
+  addButtonText: { color: "#09090F", fontSize: 13, fontWeight: "800" },
   clientCard: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(26, 29, 41, 0.65)",
     borderRadius: 14,
-    padding: 12,
+    padding: 13,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.05)",
   },
-  clientName: {
-    color: "#F5F6FF",
-    fontSize: 13,
-    fontWeight: "600",
-    marginBottom: 2,
-  },
-  clientCompany: { fontSize: 11 },
-  clientMeta: { color: "#A7ADC0", fontSize: 11 },
-  editText: { color: "#54A9FF", fontSize: 11, fontWeight: "600" },
-  deleteText: { color: "#FF778F", fontSize: 11, fontWeight: "600" },
-
-  txCard: {
-    backgroundColor: "rgba(26, 29, 41, 0.65)",
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 8,
+  clientAvatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 11,
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.05)",
+    marginRight: 11,
   },
-  txTitle: {
-    color: "#F5F6FF",
-    fontSize: 13,
-    fontWeight: "600",
-    marginBottom: 2,
-  },
-  txSub: { color: "#A7ADC0", fontSize: 11 },
-  txAmount: { fontSize: 13, fontWeight: "700" },
-  greenText: { color: "#48D5AE" },
-  redText: { color: "#FF778F" },
+  clientName: { fontSize: 13, fontWeight: "700", marginBottom: 2 },
+  clientCompany: { fontSize: 11, fontWeight: "700" },
+  clientMeta: { fontSize: 11 },
+  editText: { fontSize: 11, fontWeight: "700" },
+  deleteText: { fontSize: 11, fontWeight: "700" },
 
   modalOverlay: {
     flex: 1,
     justifyContent: "flex-end",
-    backgroundColor: "rgba(0,0,0,0.7)",
+    backgroundColor: "rgba(0,0,0,0.75)",
   },
   modalContent: {
-    backgroundColor: "rgba(18, 20, 29, 0.96)",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    padding: 24,
+    padding: 22,
     borderWidth: 1,
   },
-  modalTitle: {
-    color: "#F5F6FF",
-    fontSize: 18,
-    fontWeight: "700",
-    marginBottom: 16,
-  },
+  modalTitle: { fontSize: 17, fontWeight: "800", marginBottom: 14 },
   input: {
-    backgroundColor: "rgba(36,40,58,0.7)",
     borderRadius: 12,
-    padding: 14,
-    color: "#F5F6FF",
+    padding: 13,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.06)",
     fontSize: 13,
   },
-  labelSub: { color: "#A7ADC0", fontSize: 12, marginBottom: 6 },
-
+  labelSub: { fontSize: 11.5, fontWeight: "700", marginBottom: 6 },
   toggleRow: { flexDirection: "row", marginBottom: 12 },
   toggleBtn: {
     flex: 1,
     padding: 10,
-    backgroundColor: "rgba(36,40,58,0.6)",
     borderRadius: 10,
+    alignContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.06)",
     marginRight: 6,
   },
-  toggleInActive: { backgroundColor: "#48D5AE", borderColor: "#48D5AE" },
-  toggleOutActive: { backgroundColor: "#FF778F", borderColor: "#FF778F" },
-  toggleText: { color: "#A7ADC0", fontSize: 11, fontWeight: "600" },
-  toggleTextActive: { color: "#07080A", fontWeight: "bold" },
+  toggleInActive: { backgroundColor: "#10B981", borderColor: "#10B981" },
+  toggleOutActive: { backgroundColor: "#F43F5E", borderColor: "#F43F5E" },
+  toggleText: { fontSize: 11, fontWeight: "700" },
+  toggleTextActive: { color: "#09090F", fontWeight: "800" },
 
   pillChip: {
-    backgroundColor: "rgba(36,40,58,0.6)",
-    paddingVertical: 6,
+    paddingVertical: 7,
     paddingHorizontal: 12,
     borderRadius: 10,
     marginRight: 6,
     marginBottom: 6,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.06)",
   },
-  pillChipText: { color: "#A7ADC0", fontSize: 11 },
-  pillChipTextActive: { color: "#07080A", fontWeight: "bold" },
+  pillChipText: { fontSize: 11, fontWeight: "600" },
+  pillChipTextActive: { color: "#09090F", fontWeight: "800" },
 
   modalButtons: {
     flexDirection: "row",
@@ -6258,8 +7906,13 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   modalBtn: { flex: 1, padding: 14, borderRadius: 12, alignItems: "center" },
-  cancelBtn: { backgroundColor: "rgba(36,40,58,0.7)", marginRight: 8 },
-  cancelBtnText: { color: "#A7ADC0", fontWeight: "600", fontSize: 13 },
-  saveBtn: { marginLeft: 0 },
-  saveBtnText: { color: "#07080A", fontWeight: "bold", fontSize: 13 },
+  cancelBtn: { marginRight: 8, borderWidth: 1 },
+  cancelBtnText: { fontWeight: "700", fontSize: 13 },
+  saveBtn: {},
+  saveBtnText: { color: "#09090F", fontWeight: "800", fontSize: 13 },
+  themeGearIcon: {
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1.5,
+  },
 });
