@@ -6,9 +6,6 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
-    "ios": {
-      "supportsTablet": true
-    },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#07080A",
@@ -51,8 +48,7 @@
       [
         "react-native-google-mobile-ads",
         {
-          "android_app_id": "ca-app-pub-2496825512080668~9870003116",
-          "ios_app_id": "ca-app-pub-2496825512080668~9870003116"
+          "android_app_id": "ca-app-pub-2496825512080668~9870003116"
         }
       ]
     ],
