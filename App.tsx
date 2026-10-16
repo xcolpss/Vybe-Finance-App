@@ -1,3 +1,8 @@
+import {
+  BannerAd,
+  BannerAdSize,
+  TestIds,
+} from "react-native-google-mobile-ads";
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   StyleSheet,
@@ -80,6 +85,16 @@ import {
   exportFullBackupJSON,
   restoreFullBackupJSON,
 } from "./src/db/database";
+import { auth, googleProvider } from "./src/db/firebase";
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+  signInWithPopup,
+  signInWithRedirect,
+} from "firebase/auth";
+import { syncCloudToLocal, syncLocalToCloud } from "./src/db/cloudSync";
 
 // ================= MASTER REFINEMENT DESIGN TOKENS =================
 const PRESET_THEMES = {
@@ -376,6 +391,11 @@ export default function App() {
 
   const [invoiceModal, setInvoiceModal] = useState(false);
   const [invoiceHistoryModal, setInvoiceHistoryModal] = useState(false);
+  const [authModal, setAuthModal] = useState(false);
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [isSignUpMode, setIsSignUpMode] = useState(false);
   const [invoiceHeading, setInvoiceHeading] = useState(
     "PROFESSIONAL SERVICE INVOICE",
   );
@@ -554,6 +574,13 @@ export default function App() {
       ),
     [customCategories],
   );
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+    });
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     initDatabase();
@@ -899,9 +926,56 @@ export default function App() {
     }
   };
 
+  const handleEmailAuth = async () => {
+    if (!authEmail || !authPassword) return;
+    try {
+      if (isSignUpMode) {
+        await createUserWithEmailAndPassword(auth, authEmail, authPassword);
+        Alert.alert(
+          "Account Created",
+          "You are now signed in and syncing to the cloud.",
+        );
+      } else {
+        await signInWithEmailAndPassword(auth, authEmail, authPassword);
+        await syncCloudToLocal();
+        loadData();
+        Alert.alert("Signed In", "Cloud data successfully synchronized.");
+      }
+      setAuthModal(false);
+    } catch (e: any) {
+      setErrorModal({
+        visible: true,
+        message: e.message || "Authentication failed.",
+      });
+    }
+  };
+
+  const handleGoogleAuth = async () => {
+    try {
+      if (Platform.OS === "web") {
+        await signInWithPopup(auth, googleProvider);
+      } else {
+        await signInWithRedirect(auth, googleProvider);
+      }
+      await syncCloudToLocal();
+      loadData();
+      Alert.alert(
+        "Success",
+        "Successfully signed in with Google & synced vault.",
+      );
+      setAuthModal(false);
+    } catch (e: any) {
+      setErrorModal({
+        visible: true,
+        message:
+          e.message ||
+          "Google sign-in failed. Please use email/password on mobile.",
+      });
+    }
+  };
+
   const handleSaveTransaction = () => {
     if (!amountInput) return;
-
     const parsedAmount = parseFloat(amountInput);
     const rate =
       currency === "PKR"
@@ -1737,186 +1811,6 @@ export default function App() {
               </Text>
             </TouchableOpacity>
           </View>
-
-          <Text style={[styles.rangeSubLabel, { color: auraColor }]}>
-            Select Year:
-          </Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={{ marginBottom: 8 }}
-          >
-            {["2024", "2025", "2026", "2027"].map((yr) => {
-              const active =
-                rangeTab === "start"
-                  ? startDate.startsWith(yr)
-                  : endDate.startsWith(yr);
-              return (
-                <TouchableOpacity
-                  key={yr}
-                  style={[
-                    styles.pillChip,
-                    {
-                      backgroundColor: THEME.surfaceElevated,
-                      borderColor: THEME.borderCard,
-                    },
-                    active && {
-                      backgroundColor: auraColor,
-                      borderColor: auraColor,
-                    },
-                  ]}
-                  onPress={() => {
-                    if (rangeTab === "start") {
-                      setStartDate(`${yr}${startDate.slice(4)}`);
-                    } else {
-                      setEndDate(`${yr}${endDate.slice(4)}`);
-                    }
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.pillChipText,
-                      {
-                        color: active
-                          ? isDarkMode
-                            ? THEME.bg
-                            : "#FFF"
-                          : THEME.textSecondary,
-                      },
-                      active && styles.pillChipTextActive,
-                    ]}
-                  >
-                    {yr}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-
-          <Text style={[styles.rangeSubLabel, { color: auraColor }]}>
-            Select Month:
-          </Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={{ marginBottom: 8 }}
-          >
-            {[
-              { m: "01", name: "Jan" },
-              { m: "02", name: "Feb" },
-              { m: "03", name: "Mar" },
-              { m: "04", name: "Apr" },
-              { m: "05", name: "May" },
-              { m: "06", name: "Jun" },
-              { m: "07", name: "Jul" },
-              { m: "08", name: "Aug" },
-              { m: "09", name: "Sep" },
-              { m: "10", name: "Oct" },
-              { m: "11", name: "Nov" },
-              { m: "12", name: "Dec" },
-            ].map((mo) => {
-              const active =
-                rangeTab === "start"
-                  ? startDate.slice(5, 7) === mo.m
-                  : endDate.slice(5, 7) === mo.m;
-              return (
-                <TouchableOpacity
-                  key={mo.m}
-                  style={[
-                    styles.pillChip,
-                    {
-                      backgroundColor: THEME.surfaceElevated,
-                      borderColor: THEME.borderCard,
-                    },
-                    active && {
-                      backgroundColor: auraColor,
-                      borderColor: auraColor,
-                    },
-                  ]}
-                  onPress={() => {
-                    if (rangeTab === "start") {
-                      setStartDate(
-                        `${startDate.slice(0, 4)}-${mo.m}${startDate.slice(7)}`,
-                      );
-                    } else {
-                      setEndDate(
-                        `${endDate.slice(0, 4)}-${mo.m}${endDate.slice(7)}`,
-                      );
-                    }
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.pillChipText,
-                      {
-                        color: active
-                          ? isDarkMode
-                            ? THEME.bg
-                            : "#FFF"
-                          : THEME.textSecondary,
-                      },
-                      active && styles.pillChipTextActive,
-                    ]}
-                  >
-                    {mo.name}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-
-          <Text style={[styles.rangeSubLabel, { color: auraColor }]}>
-            Select Day:
-          </Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {Array.from({ length: 31 }, (_, i) =>
-              String(i + 1).padStart(2, "0"),
-            ).map((d) => {
-              const active =
-                rangeTab === "start"
-                  ? startDate.endsWith(d)
-                  : endDate.endsWith(d);
-              return (
-                <TouchableOpacity
-                  key={d}
-                  style={[
-                    styles.pillChip,
-                    {
-                      backgroundColor: THEME.surfaceElevated,
-                      borderColor: THEME.borderCard,
-                    },
-                    active && {
-                      backgroundColor: auraColor,
-                      borderColor: auraColor,
-                    },
-                  ]}
-                  onPress={() => {
-                    if (rangeTab === "start") {
-                      setStartDate(`${startDate.slice(0, 8)}${d}`);
-                    } else {
-                      setEndDate(`${endDate.slice(0, 8)}${d}`);
-                    }
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.pillChipText,
-                      {
-                        color: active
-                          ? isDarkMode
-                            ? THEME.bg
-                            : "#FFF"
-                          : THEME.textSecondary,
-                      },
-                      active && styles.pillChipTextActive,
-                    ]}
-                  >
-                    {d}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
         </View>
       )}
     </>
@@ -3446,7 +3340,7 @@ export default function App() {
           {/* ================= SCREEN 5: MORE COMMAND HUB & SUB-SCREENS ================= */}
           {primaryNav === "more" && (
             <>
-              {/* Sub-navigation Pill Bar inside More (Fixed missing text visibility) */}
+              {/* Sub-navigation Pill Bar inside More */}
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -3875,7 +3769,7 @@ export default function App() {
                 </View>
               )}
 
-              {/* SUB-SCREEN: RECURRING BILLS (With Advanced Date Range Selector) */}
+              {/* SUB-SCREEN: RECURRING BILLS */}
               {moreSubTab === "bills" && (
                 <View>
                   <Text
@@ -3941,7 +3835,9 @@ export default function App() {
                       }
                     />
 
-                    <Text style={[styles.labelSub, { color: "#FFFFFF" }]}>
+                    <Text
+                      style={[styles.labelSub, { color: THEME.textPrimary }]}
+                    >
                       Due Day of Month (1-31):
                     </Text>
                     <TextInput
@@ -3961,7 +3857,9 @@ export default function App() {
                       }
                     />
 
-                    <Text style={[styles.labelSub, { color: "#FFFFFF" }]}>
+                    <Text
+                      style={[styles.labelSub, { color: THEME.textPrimary }]}
+                    >
                       Pay From Account:
                     </Text>
                     <ScrollView
@@ -4195,7 +4093,9 @@ export default function App() {
                       Set Category Monthly Limit
                     </Text>
 
-                    <Text style={[styles.labelSub, { color: "#FFFFFF" }]}>
+                    <Text
+                      style={[styles.labelSub, { color: THEME.textPrimary }]}
+                    >
                       Select Category:
                     </Text>
                     <ScrollView
@@ -4860,7 +4760,7 @@ export default function App() {
                         { color: THEME.textPrimary },
                       ]}
                     >
-                      Clients & Counterparties
+                      Clients & Counterparties ({clients.length})
                     </Text>
                     <TouchableOpacity
                       onPress={() => {
@@ -4975,6 +4875,19 @@ export default function App() {
         </Animated.ScrollView>
 
         {/* ================= BOTTOM NAVIGATION BAR ================= */}
+        <View style={{ alignItems: "center", backgroundColor: THEME.surface }}>
+          <BannerAd
+            unitId={
+              __DEV__
+                ? TestIds.BANNER
+                : "ca-app-pub-2496825512080668/6250322309"
+            }
+            size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
+            requestOptions={{
+              requestNonPersonalizedAdsOnly: true,
+            }}
+          />
+        </View>
         <View
           style={[
             styles.bottomNavContainer,
@@ -5294,7 +5207,7 @@ export default function App() {
         </View>
       </Modal>
 
-      {/* ================= STATEMENT EXPORT MODAL (With Advanced Date Range Picker) ================= */}
+      {/* ================= STATEMENT EXPORT MODAL ================= */}
       <Modal visible={exportModal} animationType="slide" transparent={true}>
         <View style={styles.modalOverlay}>
           <View
@@ -5440,78 +5353,6 @@ export default function App() {
                           ]}
                         >
                           {yr}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-
-                <Text style={[styles.rangeSubLabel, { color: auraColor }]}>
-                  Select Month:
-                </Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={{ marginBottom: 8 }}
-                >
-                  {[
-                    { m: "01", name: "Jan" },
-                    { m: "02", name: "Feb" },
-                    { m: "03", name: "Mar" },
-                    { m: "04", name: "Apr" },
-                    { m: "05", name: "May" },
-                    { m: "06", name: "Jun" },
-                    { m: "07", name: "Jul" },
-                    { m: "08", name: "Aug" },
-                    { m: "09", name: "Sep" },
-                    { m: "10", name: "Oct" },
-                    { m: "11", name: "Nov" },
-                    { m: "12", name: "Dec" },
-                  ].map((mo) => {
-                    const active =
-                      statementRangeTab === "start"
-                        ? exportStartDate.slice(5, 7) === mo.m
-                        : exportEndDate.slice(5, 7) === mo.m;
-                    return (
-                      <TouchableOpacity
-                        key={mo.m}
-                        style={[
-                          styles.pillChip,
-                          {
-                            backgroundColor: THEME.surface,
-                            borderColor: THEME.borderCard,
-                          },
-                          active && {
-                            backgroundColor: auraColor,
-                            borderColor: auraColor,
-                          },
-                        ]}
-                        onPress={() => {
-                          if (statementRangeTab === "start") {
-                            setExportStartDate(
-                              `${exportStartDate.slice(0, 4)}-${mo.m}${exportStartDate.slice(7)}`,
-                            );
-                          } else {
-                            setExportEndDate(
-                              `${exportEndDate.slice(0, 4)}-${mo.m}${exportEndDate.slice(7)}`,
-                            );
-                          }
-                        }}
-                      >
-                        <Text
-                          style={[
-                            styles.pillChipText,
-                            {
-                              color: active
-                                ? isDarkMode
-                                  ? THEME.bg
-                                  : "#FFF"
-                                : THEME.textSecondary,
-                            },
-                            active && styles.pillChipTextActive,
-                          ]}
-                        >
-                          {mo.name}
                         </Text>
                       </TouchableOpacity>
                     );
@@ -6426,6 +6267,485 @@ export default function App() {
         </View>
       </Modal>
 
+      {/* ================= CATEGORY MANAGER MODAL ================= */}
+      <Modal visible={categoryModal} animationType="slide" transparent={true}>
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.modalContent,
+              { backgroundColor: THEME.surface, borderColor: `${auraColor}50` },
+            ]}
+          >
+            <Text style={[styles.modalTitle, { color: THEME.textPrimary }]}>
+              Custom Category Manager
+            </Text>
+            <TextInput
+              style={[
+                styles.input,
+                {
+                  backgroundColor: THEME.surfaceElevated,
+                  color: THEME.textPrimary,
+                },
+              ]}
+              placeholder="Category Name (e.g. Side Hustle, Coffee)"
+              placeholderTextColor={THEME.textSecondary}
+              value={newCatName}
+              onChangeText={setNewCatName}
+            />
+            <View style={styles.toggleRow}>
+              <TouchableOpacity
+                style={[
+                  styles.toggleBtn,
+                  newCatType === "out" && styles.toggleOutActive,
+                ]}
+                onPress={() => setNewCatType("out")}
+              >
+                <Text
+                  style={[
+                    styles.toggleText,
+                    { color: THEME.textSecondary },
+                    newCatType === "out" && styles.toggleTextActive,
+                  ]}
+                >
+                  Outflow Category
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.toggleBtn,
+                  newCatType === "in" && styles.toggleInActive,
+                ]}
+                onPress={() => setNewCatType("in")}
+              >
+                <Text
+                  style={[
+                    styles.toggleText,
+                    { color: THEME.textSecondary },
+                    newCatType === "in" && styles.toggleTextActive,
+                  ]}
+                >
+                  Inflow Category
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity
+              style={[
+                styles.addButton,
+                { backgroundColor: auraColor, marginTop: 10 },
+              ]}
+              onPress={handleSaveCategory}
+            >
+              <Text style={styles.addButtonText}>Add Custom Category</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setCategoryModal(false)}
+              style={{ alignItems: "center", marginTop: 14 }}
+            >
+              <Text style={{ color: THEME.textSecondary, fontWeight: "700" }}>
+                Close
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ================= SAVINGS GOAL MODAL ================= */}
+      <Modal visible={goalModal} animationType="slide" transparent={true}>
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.modalContent,
+              { backgroundColor: THEME.surface, borderColor: `${auraColor}50` },
+            ]}
+          >
+            <Text style={[styles.modalTitle, { color: THEME.textPrimary }]}>
+              {editingGoalId ? "Edit Savings Goal" : "Create Savings Goal"}
+            </Text>
+            <TextInput
+              style={[
+                styles.input,
+                {
+                  backgroundColor: THEME.surfaceElevated,
+                  color: THEME.textPrimary,
+                },
+              ]}
+              placeholder="Goal Title (e.g. New Laptop, Emergency Fund)"
+              placeholderTextColor={THEME.textSecondary}
+              value={goalTitle}
+              onChangeText={setGoalTitle}
+            />
+            <TextInput
+              style={[
+                styles.input,
+                {
+                  backgroundColor: THEME.surfaceElevated,
+                  color: THEME.textPrimary,
+                },
+              ]}
+              placeholder="Target Amount (PKR)"
+              placeholderTextColor={THEME.textSecondary}
+              keyboardType="numeric"
+              value={goalTargetAmount}
+              onChangeText={(t) =>
+                setGoalTargetAmount(t.replace(/[^0-9.]/g, ""))
+              }
+            />
+            <Text style={[styles.labelSub, { color: THEME.textPrimary }]}>
+              Target Deadline (YYYY-MM-DD):
+            </Text>
+            <View style={{ flexDirection: "row", marginBottom: 12 }}>
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    flex: 1,
+                    backgroundColor: THEME.surfaceElevated,
+                    color: THEME.textPrimary,
+                    marginRight: 6,
+                    marginBottom: 0,
+                  },
+                ]}
+                placeholder="YYYY"
+                placeholderTextColor={THEME.textSecondary}
+                keyboardType="numeric"
+                value={goalYear}
+                onChangeText={setGoalYear}
+              />
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    width: 70,
+                    backgroundColor: THEME.surfaceElevated,
+                    color: THEME.textPrimary,
+                    marginRight: 6,
+                    marginBottom: 0,
+                  },
+                ]}
+                placeholder="MM"
+                placeholderTextColor={THEME.textSecondary}
+                keyboardType="numeric"
+                value={goalMonth}
+                onChangeText={setGoalMonth}
+              />
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    width: 70,
+                    backgroundColor: THEME.surfaceElevated,
+                    color: THEME.textPrimary,
+                    marginBottom: 0,
+                  },
+                ]}
+                placeholder="DD"
+                placeholderTextColor={THEME.textSecondary}
+                keyboardType="numeric"
+                value={goalDay}
+                onChangeText={setGoalDay}
+              />
+            </View>
+            <TouchableOpacity
+              style={[
+                styles.addButton,
+                { backgroundColor: auraColor, marginTop: 10 },
+              ]}
+              onPress={handleSaveGoal}
+            >
+              <Text style={styles.addButtonText}>Save Savings Goal</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setGoalModal(false)}
+              style={{ alignItems: "center", marginTop: 14 }}
+            >
+              <Text style={{ color: THEME.textSecondary, fontWeight: "700" }}>
+                Cancel
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ================= FUND GOAL MODAL ================= */}
+      <Modal
+        visible={fundGoalModal.visible}
+        animationType="slide"
+        transparent={true}
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.modalContent,
+              { backgroundColor: THEME.surface, borderColor: `${auraColor}50` },
+            ]}
+          >
+            <Text style={[styles.modalTitle, { color: THEME.textPrimary }]}>
+              Fund Goal: {fundGoalModal.goal?.title}
+            </Text>
+            <TextInput
+              style={[
+                styles.input,
+                {
+                  backgroundColor: THEME.surfaceElevated,
+                  color: THEME.textPrimary,
+                },
+              ]}
+              placeholder="Allocation Amount (PKR)"
+              placeholderTextColor={THEME.textSecondary}
+              keyboardType="numeric"
+              value={goalFundInput}
+              onChangeText={(t) => setGoalFundInput(t.replace(/[^0-9.]/g, ""))}
+            />
+            <Text style={[styles.labelSub, { color: THEME.textPrimary }]}>
+              Fund From Account:
+            </Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={{ marginBottom: 16 }}
+            >
+              {accounts.map((acc) => (
+                <TouchableOpacity
+                  key={acc.id}
+                  style={[
+                    styles.pillChip,
+                    {
+                      backgroundColor: THEME.surfaceElevated,
+                      borderColor: THEME.borderCard,
+                    },
+                    fundingAccountId === acc.id && {
+                      backgroundColor: auraColor,
+                      borderColor: auraColor,
+                    },
+                  ]}
+                  onPress={() => setFundingAccountId(acc.id)}
+                >
+                  <Text
+                    style={[
+                      styles.pillChipText,
+                      {
+                        color:
+                          fundingAccountId === acc.id
+                            ? isDarkMode
+                              ? THEME.bg
+                              : "#FFF"
+                            : THEME.textSecondary,
+                      },
+                    ]}
+                  >
+                    {acc.name} (PKR {acc.balance.toLocaleString()})
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity
+              style={[styles.addButton, { backgroundColor: auraColor }]}
+              onPress={handleFundGoal}
+            >
+              <Text style={styles.addButtonText}>Confirm Allocation</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setFundGoalModal({ visible: false, goal: null })}
+              style={{ alignItems: "center", marginTop: 14 }}
+            >
+              <Text style={{ color: THEME.textSecondary, fontWeight: "700" }}>
+                Cancel
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ================= DEBT MODAL ================= */}
+      <Modal visible={debtModal} animationType="slide" transparent={true}>
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.modalContent,
+              { backgroundColor: THEME.surface, borderColor: `${auraColor}50` },
+            ]}
+          >
+            <Text style={[styles.modalTitle, { color: THEME.textPrimary }]}>
+              Track Loan / Debt
+            </Text>
+            <TextInput
+              style={[
+                styles.input,
+                {
+                  backgroundColor: THEME.surfaceElevated,
+                  color: THEME.textPrimary,
+                },
+              ]}
+              placeholder="Title (e.g. Loan to Ali, Office Credit)"
+              placeholderTextColor={THEME.textSecondary}
+              value={debtTitle}
+              onChangeText={setDebtTitle}
+            />
+            <View style={styles.toggleRow}>
+              <TouchableOpacity
+                style={[
+                  styles.toggleBtn,
+                  debtType === "lent" && styles.toggleInActive,
+                ]}
+                onPress={() => setDebtType("lent")}
+              >
+                <Text
+                  style={[
+                    styles.toggleText,
+                    { color: THEME.textSecondary },
+                    debtType === "lent" && styles.toggleTextActive,
+                  ]}
+                >
+                  Lent (Receivable)
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.toggleBtn,
+                  debtType === "borrowed" && styles.toggleOutActive,
+                ]}
+                onPress={() => setDebtType("borrowed")}
+              >
+                <Text
+                  style={[
+                    styles.toggleText,
+                    { color: THEME.textSecondary },
+                    debtType === "borrowed" && styles.toggleTextActive,
+                  ]}
+                >
+                  Borrowed (Payable)
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <TextInput
+              style={[
+                styles.input,
+                {
+                  backgroundColor: THEME.surfaceElevated,
+                  color: THEME.textPrimary,
+                },
+              ]}
+              placeholder="Amount (PKR)"
+              placeholderTextColor={THEME.textSecondary}
+              keyboardType="numeric"
+              value={debtAmount}
+              onChangeText={(t) => setDebtAmount(t.replace(/[^0-9.]/g, ""))}
+            />
+            <Text style={[styles.labelSub, { color: THEME.textPrimary }]}>
+              Associated Account:
+            </Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={{ marginBottom: 12 }}
+            >
+              {accounts.map((acc) => (
+                <TouchableOpacity
+                  key={acc.id}
+                  style={[
+                    styles.pillChip,
+                    {
+                      backgroundColor: THEME.surfaceElevated,
+                      borderColor: THEME.borderCard,
+                    },
+                    debtAccountId === acc.id && {
+                      backgroundColor: auraColor,
+                      borderColor: auraColor,
+                    },
+                  ]}
+                  onPress={() => setDebtAccountId(acc.id)}
+                >
+                  <Text
+                    style={[
+                      styles.pillChipText,
+                      {
+                        color:
+                          debtAccountId === acc.id
+                            ? isDarkMode
+                              ? THEME.bg
+                              : "#FFF"
+                            : THEME.textSecondary,
+                      },
+                    ]}
+                  >
+                    {acc.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <Text style={[styles.labelSub, { color: THEME.textPrimary }]}>
+              Due Date (YYYY-MM-DD):
+            </Text>
+            <View style={{ flexDirection: "row", marginBottom: 14 }}>
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    flex: 1,
+                    backgroundColor: THEME.surfaceElevated,
+                    color: THEME.textPrimary,
+                    marginRight: 6,
+                    marginBottom: 0,
+                  },
+                ]}
+                placeholder="YYYY"
+                placeholderTextColor={THEME.textSecondary}
+                keyboardType="numeric"
+                value={debtYear}
+                onChangeText={setDebtYear}
+              />
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    width: 70,
+                    backgroundColor: THEME.surfaceElevated,
+                    color: THEME.textPrimary,
+                    marginRight: 6,
+                    marginBottom: 0,
+                  },
+                ]}
+                placeholder="MM"
+                placeholderTextColor={THEME.textSecondary}
+                keyboardType="numeric"
+                value={debtMonth}
+                onChangeText={setDebtMonth}
+              />
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    width: 70,
+                    backgroundColor: THEME.surfaceElevated,
+                    color: THEME.textPrimary,
+                    marginBottom: 0,
+                  },
+                ]}
+                placeholder="DD"
+                placeholderTextColor={THEME.textSecondary}
+                keyboardType="numeric"
+                value={debtDay}
+                onChangeText={setDebtDay}
+              />
+            </View>
+            <TouchableOpacity
+              style={[styles.addButton, { backgroundColor: auraColor }]}
+              onPress={handleSaveDebt}
+            >
+              <Text style={styles.addButtonText}>Save Debt Record</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setDebtModal(false)}
+              style={{ alignItems: "center", marginTop: 14 }}
+            >
+              <Text style={{ color: THEME.textSecondary, fontWeight: "700" }}>
+                Cancel
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* ================= TRANSACTION MODAL ================= */}
       <Modal visible={txModal} animationType="slide" transparent={true}>
         <View style={styles.modalOverlay}>
@@ -6526,7 +6846,9 @@ export default function App() {
               </View>
 
               <View style={styles.sectionHeaderRow}>
-                <Text style={styles.labelSub}>Transaction Currency:</Text>
+                <Text style={[styles.labelSub, { color: THEME.textPrimary }]}>
+                  Transaction Currency:
+                </Text>
                 <TouchableOpacity onPress={() => setCurrencyModal(true)}>
                   <Text style={[styles.actionLink, { color: auraColor }]}>
                     + Global Currencies
@@ -6651,7 +6973,9 @@ export default function App() {
 
               {txType !== "transfer" && (
                 <>
-                  <Text style={styles.labelSub}>Category:</Text>
+                  <Text style={[styles.labelSub, { color: THEME.textPrimary }]}>
+                    Category:
+                  </Text>
                   <ScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}
@@ -6698,7 +7022,7 @@ export default function App() {
                 </>
               )}
 
-              <Text style={styles.labelSub}>
+              <Text style={[styles.labelSub, { color: THEME.textPrimary }]}>
                 {txType === "transfer"
                   ? "From Account (Source):"
                   : "Account / Wallet:"}
@@ -6747,7 +7071,9 @@ export default function App() {
 
               {txType === "transfer" && (
                 <>
-                  <Text style={styles.labelSub}>To Account (Destination):</Text>
+                  <Text style={[styles.labelSub, { color: THEME.textPrimary }]}>
+                    To Account (Destination):
+                  </Text>
                   <ScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}
@@ -6797,7 +7123,11 @@ export default function App() {
               {txType === "in" && (
                 <>
                   <View style={styles.sectionHeaderRow}>
-                    <Text style={styles.labelSub}>Received From Client:</Text>
+                    <Text
+                      style={[styles.labelSub, { color: THEME.textPrimary }]}
+                    >
+                      Received From Client:
+                    </Text>
                     <TouchableOpacity
                       onPress={() =>
                         setShowQuickClientInput(!showQuickClientInput)
@@ -7035,6 +7365,515 @@ export default function App() {
           </View>
         </View>
       </Modal>
+
+      {/* ================= PROFESSIONAL PDF INVOICE GENERATOR MODAL ================= */}
+      <Modal visible={invoiceModal} animationType="slide" transparent={true}>
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.modalContent,
+              {
+                backgroundColor: THEME.surface,
+                maxHeight: "92%",
+                borderColor: `${auraColor}50`,
+              },
+            ]}
+          >
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={[styles.modalTitle, { color: THEME.textPrimary }]}>
+                Generate Client PDF Invoice
+              </Text>
+
+              <Text style={[styles.labelSub, { color: THEME.textPrimary }]}>
+                Invoice Title / Heading:
+              </Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: THEME.surfaceElevated,
+                    color: THEME.textPrimary,
+                  },
+                ]}
+                value={invoiceHeading}
+                onChangeText={setInvoiceHeading}
+                placeholder="PROFESSIONAL SERVICE INVOICE"
+                placeholderTextColor={THEME.textSecondary}
+              />
+
+              <Text style={[styles.labelSub, { color: THEME.textPrimary }]}>
+                Select Client:
+              </Text>
+              {clients.length === 0 ? (
+                <TouchableOpacity
+                  style={[
+                    styles.pillChip,
+                    {
+                      backgroundColor: `${auraColor}20`,
+                      borderColor: auraColor,
+                      marginBottom: 12,
+                      padding: 10,
+                      alignItems: "center",
+                    },
+                  ]}
+                  onPress={() => {
+                    setInvoiceModal(false);
+                    setClientModal(true);
+                  }}
+                >
+                  <Text style={{ color: auraColor, fontWeight: "800" }}>
+                    + Add Your First Client Directory Entry
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={{ marginBottom: 12 }}
+                >
+                  {clients.map((c) => (
+                    <TouchableOpacity
+                      key={c.id}
+                      style={[
+                        styles.pillChip,
+                        {
+                          backgroundColor: THEME.surfaceElevated,
+                          borderColor: THEME.borderCard,
+                        },
+                        invoiceClient?.id === c.id && {
+                          backgroundColor: auraColor,
+                          borderColor: auraColor,
+                        },
+                      ]}
+                      onPress={() => setInvoiceClient(c)}
+                    >
+                      <Text
+                        style={[
+                          styles.pillChipText,
+                          {
+                            color:
+                              invoiceClient?.id === c.id
+                                ? isDarkMode
+                                  ? THEME.bg
+                                  : "#FFF"
+                                : THEME.textSecondary,
+                          },
+                        ]}
+                      >
+                        {c.name} ({c.company})
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              )}
+
+              <Text style={[styles.labelSub, { color: THEME.textPrimary }]}>
+                Deposit To Account:
+              </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={{ marginBottom: 12 }}
+              >
+                {accounts.map((acc) => (
+                  <TouchableOpacity
+                    key={acc.id}
+                    style={[
+                      styles.pillChip,
+                      {
+                        backgroundColor: THEME.surfaceElevated,
+                        borderColor: THEME.borderCard,
+                      },
+                      invoiceAccountId === acc.id && {
+                        backgroundColor: auraColor,
+                        borderColor: auraColor,
+                      },
+                    ]}
+                    onPress={() => setInvoiceAccountId(acc.id)}
+                  >
+                    <Text
+                      style={[
+                        styles.pillChipText,
+                        {
+                          color:
+                            invoiceAccountId === acc.id
+                              ? isDarkMode
+                                ? THEME.bg
+                                : "#FFF"
+                              : THEME.textSecondary,
+                        },
+                      ]}
+                    >
+                      {acc.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              <Text style={[styles.labelSub, { color: THEME.textPrimary }]}>
+                Invoice Layout Format:
+              </Text>
+              <View style={styles.toggleRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.toggleBtn,
+                    invoiceMode === "bullets" && { backgroundColor: auraColor },
+                  ]}
+                  onPress={() => setInvoiceMode("bullets")}
+                >
+                  <Text
+                    style={[
+                      styles.toggleText,
+                      { color: THEME.textSecondary },
+                      invoiceMode === "bullets" && styles.toggleTextActive,
+                    ]}
+                  >
+                    Itemized List
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.toggleBtn,
+                    invoiceMode === "notes" && { backgroundColor: auraColor },
+                  ]}
+                  onPress={() => setInvoiceMode("notes")}
+                >
+                  <Text
+                    style={[
+                      styles.toggleText,
+                      { color: THEME.textSecondary },
+                      invoiceMode === "notes" && styles.toggleTextActive,
+                    ]}
+                  >
+                    Lump-Sum Scope
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {invoiceMode === "bullets" ? (
+                <>
+                  <View style={styles.sectionHeaderRow}>
+                    <Text
+                      style={[styles.labelSub, { color: THEME.textPrimary }]}
+                    >
+                      Line Items & Scope:
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() =>
+                        setInvoiceItems([
+                          ...invoiceItems,
+                          { desc: "", price: "" },
+                        ])
+                      }
+                    >
+                      <Text style={[styles.actionLink, { color: auraColor }]}>
+                        + Add Item
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  {invoiceItems.map((item, index) => (
+                    <View
+                      key={index}
+                      style={{
+                        flexDirection: "row",
+                        marginBottom: 8,
+                        alignItems: "center",
+                      }}
+                    >
+                      <TextInput
+                        style={[
+                          styles.input,
+                          {
+                            flex: 2,
+                            backgroundColor: THEME.surfaceElevated,
+                            color: THEME.textPrimary,
+                            marginRight: 6,
+                            marginBottom: 0,
+                          },
+                        ]}
+                        placeholder="Service description"
+                        placeholderTextColor={THEME.textSecondary}
+                        value={item.desc}
+                        onChangeText={(t) => {
+                          const updated = [...invoiceItems];
+                          updated[index].desc = t;
+                          setInvoiceItems(updated);
+                        }}
+                      />
+                      <TextInput
+                        style={[
+                          styles.input,
+                          {
+                            flex: 1,
+                            backgroundColor: THEME.surfaceElevated,
+                            color: THEME.textPrimary,
+                            marginRight: 6,
+                            marginBottom: 0,
+                          },
+                        ]}
+                        placeholder="PKR"
+                        placeholderTextColor={THEME.textSecondary}
+                        keyboardType="numeric"
+                        value={item.price}
+                        onChangeText={(t) => {
+                          const updated = [...invoiceItems];
+                          updated[index].price = t.replace(/[^0-9.]/g, "");
+                          setInvoiceItems(updated);
+                        }}
+                      />
+                      {invoiceItems.length > 1 && (
+                        <TouchableOpacity
+                          onPress={() =>
+                            setInvoiceItems(
+                              invoiceItems.filter((_, i) => i !== index),
+                            )
+                          }
+                        >
+                          <Ionicons
+                            name="trash-outline"
+                            size={18}
+                            color={THEME.negative}
+                          />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  ))}
+                </>
+              ) : (
+                <>
+                  <Text style={[styles.labelSub, { color: THEME.textPrimary }]}>
+                    Lump-Sum Description & Price:
+                  </Text>
+                  <TextInput
+                    style={[
+                      styles.input,
+                      {
+                        backgroundColor: THEME.surfaceElevated,
+                        color: THEME.textPrimary,
+                        height: 70,
+                        textAlignVertical: "top",
+                      },
+                    ]}
+                    multiline
+                    placeholder="Enter scope of work description..."
+                    placeholderTextColor={THEME.textSecondary}
+                    value={invoiceNotes}
+                    onChangeText={setInvoiceNotes}
+                  />
+                  <TextInput
+                    style={[
+                      styles.input,
+                      {
+                        backgroundColor: THEME.surfaceElevated,
+                        color: THEME.textPrimary,
+                      },
+                    ]}
+                    placeholder="Total Amount (PKR)"
+                    placeholderTextColor={THEME.textSecondary}
+                    keyboardType="numeric"
+                    value={invoiceItems[0]?.price || ""}
+                    onChangeText={(t) => {
+                      const updated = [
+                        {
+                          desc: invoiceNotes || "Professional Services",
+                          price: t.replace(/[^0-9.]/g, ""),
+                        },
+                      ];
+                      setInvoiceItems(updated);
+                    }}
+                  />
+                </>
+              )}
+
+              <View style={{ flexDirection: "row", marginTop: 16 }}>
+                <TouchableOpacity
+                  style={[
+                    styles.modalBtn,
+                    styles.cancelBtn,
+                    { flex: 1, marginRight: 8 },
+                  ]}
+                  onPress={() => setInvoiceModal(false)}
+                >
+                  <Text
+                    style={[
+                      styles.cancelBtnText,
+                      { color: THEME.textSecondary },
+                    ]}
+                  >
+                    Cancel
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.modalBtn,
+                    {
+                      backgroundColor: THEME.electricCyan,
+                      flex: 1,
+                      marginRight: 8,
+                      padding: 12,
+                      borderRadius: 12,
+                      alignItems: "center",
+                    },
+                  ]}
+                  onPress={generateAndSharePDFInvoice}
+                >
+                  <Text
+                    style={{
+                      color: "#09090F",
+                      fontWeight: "800",
+                      fontSize: 12,
+                    }}
+                  >
+                    Share PDF 📤
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.modalBtn,
+                    {
+                      backgroundColor: auraColor,
+                      flex: 1,
+                      padding: 12,
+                      borderRadius: 12,
+                      alignItems: "center",
+                    },
+                  ]}
+                  onPress={generateAndDownloadPDFInvoice}
+                >
+                  <Text
+                    style={{
+                      color: "#09090F",
+                      fontWeight: "800",
+                      fontSize: 12,
+                    }}
+                  >
+                    Save PDF 💾
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ================= INVOICE HISTORY VAULT MODAL ================= */}
+      <Modal
+        visible={invoiceHistoryModal}
+        animationType="slide"
+        transparent={true}
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.modalContent,
+              {
+                backgroundColor: THEME.surface,
+                maxHeight: "88%",
+                borderColor: `${auraColor}50`,
+              },
+            ]}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 14,
+              }}
+            >
+              <Text
+                style={[
+                  styles.modalTitle,
+                  { color: THEME.textPrimary, marginBottom: 0 },
+                ]}
+              >
+                Invoice Vault (30 Days)
+              </Text>
+              <TouchableOpacity onPress={() => setInvoiceHistoryModal(false)}>
+                <Text style={{ color: auraColor, fontWeight: "bold" }}>
+                  Close
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {invoiceHistoryList.length === 0 ? (
+              <EmptyState
+                title="No Archived Invoices"
+                subtitle="Generated PDF invoices will automatically archive here for 30 days."
+                auraColor={auraColor}
+                isDark={isDarkMode}
+              />
+            ) : (
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {invoiceHistoryList.map((inv: any) => (
+                  <View
+                    key={inv.id}
+                    style={[
+                      styles.clientCard,
+                      {
+                        backgroundColor: THEME.surfaceElevated,
+                        borderColor: THEME.borderCard,
+                      },
+                    ]}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={[
+                          styles.clientName,
+                          { color: THEME.textPrimary },
+                        ]}
+                      >
+                        {inv.client_name}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.clientMeta,
+                          { color: THEME.textSecondary },
+                        ]}
+                      >
+                        PKR {Number(inv.total_amount).toLocaleString()} •{" "}
+                        {inv.created_at}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={[
+                        styles.payBillBtn,
+                        {
+                          backgroundColor: `${auraColor}20`,
+                          borderColor: auraColor,
+                          borderWidth: 1,
+                          paddingVertical: 6,
+                          paddingHorizontal: 12,
+                        },
+                      ]}
+                      onPress={async () => {
+                        try {
+                          await shareInvoicePdf({
+                            html: inv.html_content,
+                            fileName: `Archived_Invoice_${inv.id}`,
+                            dialogTitle: "Share Archived Invoice",
+                          });
+                        } catch (e) {}
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: auraColor,
+                          fontSize: 11,
+                          fontWeight: "800",
+                        }}
+                      >
+                        Share PDF
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
       {/* ================= FROSTED BRANDED NAVIGATION DRAWER ================= */}
       <Modal visible={menuModal} animationType="none" transparent={true}>
         <View style={styles.drawerBackdrop}>
@@ -7056,24 +7895,81 @@ export default function App() {
             <View
               style={[
                 styles.drawerHeader,
-                { borderBottomColor: THEME.borderCard },
+                {
+                  borderBottomColor: THEME.borderCard,
+                  flexDirection: "column",
+                  alignItems: "flex-start",
+                },
               ]}
             >
-              <Image
-                source={VYBE_ICON_BADGE}
-                style={styles.drawerLogoImage}
-                resizeMode="cover"
-              />
-              <View style={{ flex: 1 }}>
-                <Text
-                  style={[styles.drawerUserName, { color: THEME.textPrimary }]}
-                >
-                  {userNameInput || "VYBE Operator"}
-                </Text>
-                <Text style={[styles.drawerUserSub, { color: auraColor }]}>
-                  VYBE MANAGER
-                </Text>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  width: "100%",
+                  marginBottom: 8,
+                }}
+              >
+                <Image
+                  source={VYBE_ICON_BADGE}
+                  style={styles.drawerLogoImage}
+                  resizeMode="cover"
+                />
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={[
+                      styles.drawerUserName,
+                      { color: THEME.textPrimary },
+                    ]}
+                  >
+                    {currentUser
+                      ? currentUser.email
+                      : userNameInput || "VYBE Operator"}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.drawerUserSub,
+                      { color: currentUser ? THEME.positive : auraColor },
+                    ]}
+                  >
+                    {currentUser
+                      ? "● CLOUD SYNCED & LINKED"
+                      : "OFFLINE LOCAL VAULT"}
+                  </Text>
+                </View>
               </View>
+
+              {currentUser && (
+                <TouchableOpacity
+                  style={{
+                    width: "100%",
+                    paddingVertical: 6,
+                    backgroundColor: "rgba(244,63,94,0.1)",
+                    borderRadius: 8,
+                    alignItems: "center",
+                    borderWidth: 1,
+                    borderColor: "rgba(244,63,94,0.3)",
+                  }}
+                  onPress={async () => {
+                    await signOut(auth);
+                    setCurrentUser(null);
+                    Alert.alert(
+                      "Signed Out",
+                      "Your local vault is now operating offline.",
+                    );
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: THEME.negative,
+                      fontWeight: "800",
+                      fontSize: 11,
+                    }}
+                  >
+                    Sign Out
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
 
             <View
@@ -7143,7 +8039,32 @@ export default function App() {
                 Theme Studio & Aura
               </Text>
             </TouchableOpacity>
-
+            <TouchableOpacity
+              style={[
+                styles.drawerNavItem,
+                {
+                  backgroundColor: THEME.surfaceElevated,
+                  borderColor: THEME.borderCard,
+                },
+              ]}
+              activeOpacity={0.8}
+              onPress={() => {
+                closeMenu();
+                setAuthModal(true);
+              }}
+            >
+              <Ionicons
+                name="cloud-outline"
+                size={18}
+                color={auraColor}
+                style={{ marginRight: 12 }}
+              />
+              <Text
+                style={[styles.drawerNavText, { color: THEME.textPrimary }]}
+              >
+                Cloud Sync & Account
+              </Text>
+            </TouchableOpacity>
             <TouchableOpacity
               style={[
                 styles.drawerNavItem,
@@ -7349,6 +8270,245 @@ export default function App() {
               </TouchableOpacity>
             </View>
           </Animated.View>
+        </View>
+      </Modal>
+
+      {/* ================= SLEEK CLOUD SYNC & AUTHENTICATION MODAL ================= */}
+      <Modal visible={authModal} animationType="slide" transparent={true}>
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.modalContent,
+              {
+                backgroundColor: THEME.surface,
+                borderColor: `${auraColor}50`,
+                paddingVertical: 28,
+              },
+            ]}
+          >
+            <View style={{ alignItems: "center", marginBottom: 20 }}>
+              <BrandMark
+                size={44}
+                auraColor={auraColor}
+                showWordmark={false}
+                isDark={isDarkMode}
+              />
+              <Text
+                style={[
+                  styles.modalTitle,
+                  {
+                    color: THEME.textPrimary,
+                    marginTop: 12,
+                    textAlign: "center",
+                    fontSize: 20,
+                  },
+                ]}
+              >
+                {currentUser ? "Account Connected" : "Log into your account"}
+              </Text>
+              <Text
+                style={{
+                  color: THEME.textSecondary,
+                  fontSize: 11,
+                  textAlign: "center",
+                  marginTop: 4,
+                  paddingHorizontal: 10,
+                  lineHeight: 16,
+                }}
+              >
+                By continuing, you agree to VYBE Manager’s Terms of Service &
+                Secure Offline-First Cloud Vault synchronization.
+              </Text>
+            </View>
+
+            {currentUser ? (
+              <View style={{ alignItems: "center", paddingVertical: 10 }}>
+                <View
+                  style={{
+                    backgroundColor: `${THEME.positive}20`,
+                    borderColor: THEME.positive,
+                    borderWidth: 1,
+                    padding: 12,
+                    borderRadius: 12,
+                    width: "100%",
+                    alignItems: "center",
+                    marginBottom: 16,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: THEME.positive,
+                      fontWeight: "800",
+                      fontSize: 13,
+                    }}
+                  >
+                    Linked Account:
+                  </Text>
+                  <Text
+                    style={{
+                      color: THEME.textPrimary,
+                      fontWeight: "700",
+                      fontSize: 14,
+                      marginTop: 2,
+                    }}
+                  >
+                    {currentUser.email}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={[
+                    styles.addButton,
+                    {
+                      backgroundColor: auraColor,
+                      width: "100%",
+                      marginBottom: 10,
+                    },
+                  ]}
+                  onPress={() => setAuthModal(false)}
+                >
+                  <Text style={styles.addButtonText}>Done</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <>
+                {/* Google Sign-In Button */}
+                <TouchableOpacity
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: THEME.surfaceElevated,
+                    borderColor: THEME.borderCard,
+                    borderWidth: 1,
+                    paddingVertical: 14,
+                    borderRadius: 999,
+                    marginBottom: 10,
+                  }}
+                  onPress={handleGoogleAuth}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons
+                    name="logo-google"
+                    size={18}
+                    color="#EA4335"
+                    style={{ marginRight: 10 }}
+                  />
+                  <Text
+                    style={{
+                      color: THEME.textPrimary,
+                      fontWeight: "700",
+                      fontSize: 13,
+                    }}
+                  >
+                    Login with Google
+                  </Text>
+                </TouchableOpacity>
+
+                {/* Email Input Fields */}
+                <View style={{ marginVertical: 10, width: "100%" }}>
+                  <TextInput
+                    style={[
+                      styles.input,
+                      {
+                        backgroundColor: THEME.surfaceElevated,
+                        color: THEME.textPrimary,
+                        borderRadius: 999,
+                        paddingHorizontal: 16,
+                      },
+                    ]}
+                    placeholder="Email address"
+                    placeholderTextColor={THEME.textSecondary}
+                    autoCapitalize="none"
+                    keyboardType="email-address"
+                    value={authEmail}
+                    onChangeText={setAuthEmail}
+                  />
+
+                  <TextInput
+                    style={[
+                      styles.input,
+                      {
+                        backgroundColor: THEME.surfaceElevated,
+                        color: THEME.textPrimary,
+                        borderRadius: 999,
+                        paddingHorizontal: 16,
+                      },
+                    ]}
+                    placeholder="Password"
+                    placeholderTextColor={THEME.textSecondary}
+                    secureTextEntry
+                    value={authPassword}
+                    onChangeText={setAuthPassword}
+                  />
+
+                  <TouchableOpacity
+                    style={[
+                      styles.addButton,
+                      {
+                        backgroundColor: auraColor,
+                        borderRadius: 999,
+                        marginTop: 4,
+                        paddingVertical: 14,
+                      },
+                    ]}
+                    onPress={handleEmailAuth}
+                  >
+                    <Text
+                      style={[
+                        styles.addButtonText,
+                        { color: "#09090F", fontWeight: "900" },
+                      ]}
+                    >
+                      {isSignUpMode ? "Register & Sync" : "Login with email"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "center",
+                    marginTop: 14,
+                    alignItems: "center",
+                  }}
+                >
+                  <Text style={{ color: THEME.textSecondary, fontSize: 12 }}>
+                    {isSignUpMode
+                      ? "Already have an account? "
+                      : "Don't have an account? "}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => setIsSignUpMode(!isSignUpMode)}
+                  >
+                    <Text
+                      style={{
+                        color: auraColor,
+                        fontWeight: "800",
+                        fontSize: 12,
+                      }}
+                    >
+                      {isSignUpMode ? "Sign In" : "Sign up"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+
+            <TouchableOpacity
+              onPress={() => setAuthModal(false)}
+              style={{ alignItems: "center", marginTop: 16 }}
+            >
+              <Text
+                style={{
+                  color: THEME.textSecondary,
+                  fontWeight: "600",
+                  fontSize: 12,
+                }}
+              >
+                Close Window
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </Modal>
     </SafeAreaView>
@@ -7905,6 +9065,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginTop: 12,
   },
+
   modalBtn: { flex: 1, padding: 14, borderRadius: 12, alignItems: "center" },
   cancelBtn: { marginRight: 8, borderWidth: 1 },
   cancelBtnText: { fontWeight: "700", fontSize: 13 },

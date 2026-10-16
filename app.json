@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Vybe Finance Manager",
-    "slug": "vybe-finance-manager",
+    "slug": "vybe-finance",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -18,7 +18,15 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.xcolps.vybefinancemanager",
-      "permissions": ["READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE"]
+      "permissions": [
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT"
+      ],
+      "gradleProperties": {
+        "org.gradle.java.home": "C:\\Program Files\\Android\\Android Studio\\jbr"
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -28,6 +36,7 @@
       "expo-router",
       "expo-sharing",
       "expo-font",
+      "expo-local-authentication",
       [
         "expo-splash-screen",
         {
@@ -49,5 +58,9 @@
         "projectId": "1525bee8-1335-498e-b045-37c1771fc170"
       }
     }
+  },
+  "react-native-google-mobile-ads": {
+    "android_app_id": "ca-app-pub-2496825512080668~9870003116",
+    "ios_app_id": "ca-app-pub-2496825512080668~9870003116"
   }
 }
