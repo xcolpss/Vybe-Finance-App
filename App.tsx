@@ -1,8 +1,26 @@
 // Safe fallback for Expo Go testing
-const BannerAd = (_props: any) => null;
+const BannerAd = (_props: any) => (
+  <View
+    style={{
+      height: 50,
+      backgroundColor: "#14161C",
+      justifyContent: "center",
+      alignItems: "center",
+      marginHorizontal: 16,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: "#2A2D37",
+    }}
+  >
+    <Text style={{ color: "#6B7280", fontSize: 11, fontWeight: "600" }}>
+      AD BANNER SLOT (Live in APK)
+    </Text>
+  </View>
+);
 const BannerAdSize = { ANCHORED_ADAPTIVE_BANNER: "ANCHORED_ADAPTIVE_BANNER" };
 const TestIds = { BANNER: "ca-app-pub-3940256099942544/6300978111" };
 import React, { useState, useEffect, useRef, useMemo } from "react";
+// import mobileAds from 'react-native-google-mobile-ads';
 import {
   StyleSheet,
   Text,
@@ -589,6 +607,7 @@ export default function App() {
 
   useEffect(() => {
     initDatabase();
+
     loadData();
 
     const savedTheme = getAuraTheme();
