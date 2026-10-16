@@ -35,6 +35,16 @@
       "expo-font",
       "expo-local-authentication",
       [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 34,
+            "targetSdkVersion": 34,
+            "minSdkVersion": 24
+          }
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/splash-icon.png",
@@ -47,6 +57,13 @@
         {
           "enableFileSharing": true
         }
+      ],
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-2496825512080668~9870003116",
+          "iosAppId": "ca-app-pub-2496825512080668~9870003116"
+        }
       ]
     ],
     "extra": {
@@ -55,9 +72,5 @@
         "projectId": "1525bee8-1335-498e-b045-37c1771fc170"
       }
     }
-  },
-  "react-native-google-mobile-ads": {
-    "android_app_id": "ca-app-pub-2496825512080668~9870003116",
-    "ios_app_id": "ca-app-pub-2496825512080668~9870003116"
   }
 }
