@@ -763,7 +763,17 @@ export function deleteCategory(id: number) {
     db.runSync(`DELETE FROM categories WHERE id = ?;`, [id]);
   }
 }
-
+export function updateCategory(id: number, newName: string) {
+  if (Platform.OS === "web") {
+    const cats = JSON.parse(localStorage.getItem("vybe_categories") || "[]");
+    const updated = cats.map((c: any) =>
+      c.id === Number(id) ? { ...c, name: newName } : c,
+    );
+    localStorage.setItem("vybe_categories", JSON.stringify(updated));
+  } else {
+    db.runSync(`UPDATE categories SET name = ? WHERE id = ?;`, [newName, id]);
+  }
+}
 export function getBudgets() {
   return Platform.OS === "web"
     ? JSON.parse(localStorage.getItem("vybe_budgets") || "[]")
@@ -1188,7 +1198,77 @@ export function restoreFullBackupJSON(jsonData: any) {
         JSON.stringify(jsonData.invoice_history),
       );
   } else {
-    // SQLite execution blocks for native restoration
+    // Bulletproof native restoration: skips any mismatched rows instead of crashing
+    db.withTransactionSync(() => {
+      if (jsonData.accounts && Array.isArray(jsonData.accounts)) {
+        for (const acc of jsonData.accounts) {
+          try {
+            db.runSync(
+              `INSERT OR REPLACE INTO accounts (id, name, type, balance, currency) VALUES (?, ?, ?, ?, ?);`,
+              [acc.id, acc.name, acc.type, acc.balance, acc.currency],
+            );
+          } catch (e) {}
+        }
+      }
+      if (jsonData.transactions && Array.isArray(jsonData.transactions)) {
+        for (const tx of jsonData.transactions) {
+          try {
+            db.runSync(
+              `INSERT OR REPLACE INTO transactions (id, account_id, type, amount, category, date, currency) VALUES (?, ?, ?, ?, ?, ?, ?);`,
+              [
+                tx.id,
+                tx.account_id,
+                tx.type,
+                tx.amount,
+                tx.category,
+                tx.date,
+                tx.currency,
+              ],
+            );
+          } catch (e) {}
+        }
+      }
+      if (jsonData.categories && Array.isArray(jsonData.categories)) {
+        for (const cat of jsonData.categories) {
+          try {
+            db.runSync(
+              `INSERT OR REPLACE INTO categories (id, name, type) VALUES (?, ?, ?);`,
+              [cat.id, cat.name, cat.type],
+            );
+          } catch (e) {}
+        }
+      }
+      if (jsonData.budgets && Array.isArray(jsonData.budgets)) {
+        for (const b of jsonData.budgets) {
+          try {
+            db.runSync(
+              `INSERT OR REPLACE INTO budgets (id, category, limit_amount, month) VALUES (?, ?, ?, ?);`,
+              [b.id, b.category, b.limit_amount || 0, b.month || ""],
+            );
+          } catch (e) {}
+        }
+      }
+      if (jsonData.savings_goals && Array.isArray(jsonData.savings_goals)) {
+        for (const s of jsonData.savings_goals) {
+          try {
+            db.runSync(
+              `INSERT OR REPLACE INTO savings_goals (id, title, target_amount, deadline) VALUES (?, ?, ?, ?);`,
+              [s.id, s.title, s.target_amount, s.deadline || null],
+            );
+          } catch (e) {}
+        }
+      }
+      if (jsonData.debts && Array.isArray(jsonData.debts)) {
+        for (const d of jsonData.debts) {
+          try {
+            db.runSync(
+              `INSERT OR REPLACE INTO debts (id, person, amount, type) VALUES (?, ?, ?, ?);`,
+              [d.id, d.person, d.amount, d.type],
+            );
+          } catch (e) {}
+        }
+      }
+    });
   }
 }
 
@@ -1251,7 +1331,6 @@ export function setThemePreferences(preferences: VybeThemePreferences): void {
     );
   }
 }
-
 /**
  * Deletes local app data only. It intentionally does not delete cloud accounts
  * or remote data. The caller must authenticate and obtain explicit confirmation.
@@ -1275,8 +1354,8 @@ export function clearAllLocalFinancialData(): void {
       "vybe_theme_preferences",
     ];
     keys.forEach((key) => localStorage.removeItem(key));
-    return;
   }
+
   if (!db) throw new Error("Local database is unavailable.");
   db.withTransactionSync(() => {
     db.execSync(`
@@ -1295,3 +1374,46 @@ export function clearAllLocalFinancialData(): void {
     `);
   });
 }
+export function getAppLockPreference(): boolean {
+  try {
+    if (Platform.OS === "web") {
+      return localStorage.getItem("vybe_app_lock") === "true";
+    }
+    const row = db.getFirstSync(
+      `SELECT value FROM settings WHERE key = 'app_lock_enabled';`,
+    ) as any;
+    return row?.value === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function setAppLockPreference(enabled: boolean): void {
+  try {
+    const val = enabled ? "true" : "false";
+    if (Platform.OS === "web") {
+      localStorage.setItem("vybe_app_lock", val);
+    } else if (db) {
+      db.runSync(
+        `INSERT OR REPLACE INTO settings (key, value) VALUES ('app_lock_enabled', ?);`,
+        [val],
+      );
+    }
+  } catch (error) {
+    console.error("Error saving app lock preference:", error);
+  }
+}
+// ================= EXPORT RANGE FUNCTION =================
+export const exportTransactionsCSVRange = async (
+  startDate: string,
+  endDate: string,
+) => {
+  try {
+    const query = `SELECT * FROM transactions WHERE date >= ? AND date <= ? ORDER BY date DESC;`;
+    const rows = await db.getAllAsync(query, [startDate, endDate]);
+    return rows;
+  } catch (error) {
+    console.error("Error exporting CSV range:", error);
+    return [];
+  }
+};

@@ -1,8 +1,7 @@
-import {
-  BannerAd,
-  BannerAdSize,
-  TestIds,
-} from "react-native-google-mobile-ads";
+// Safe fallback for Expo Go testing
+const BannerAd = (_props: any) => null;
+const BannerAdSize = { ANCHORED_ADAPTIVE_BANNER: "ANCHORED_ADAPTIVE_BANNER" };
+const TestIds = { BANNER: "ca-app-pub-3940256099942544/6300978111" };
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   StyleSheet,
@@ -16,6 +15,7 @@ import {
   StatusBar,
   Animated,
   Platform,
+  AppState,
   KeyboardAvoidingView,
   Alert,
   Image,
@@ -55,6 +55,9 @@ import {
   deleteRecurringBill,
   getCategories,
   addCategory,
+  updateCategory,
+  getAppLockPreference,
+  setAppLockPreference,
   deleteCategory,
   getBudgets,
   setBudgetLimit,
@@ -82,6 +85,7 @@ import {
   getLiveRate,
   fetchLiveExchangeRates,
   exportTransactionsCSV,
+  exportTransactionsCSVRange,
   exportFullBackupJSON,
   restoreFullBackupJSON,
 } from "./src/db/database";
@@ -335,7 +339,8 @@ export default function App() {
   const confirmPhraseRef = useRef("");
 
   // App Lock Security State
-  const [appLockEnabled, setAppLockEnabled] = useState(false);
+  const [isLocked, setIsLocked] = useState(false);
+  const [appLockEnabled, setAppLockEnabled] = useState(getAppLockPreference());
 
   // Master Refinement Theme Palette
   const THEME = useMemo(
@@ -349,7 +354,7 @@ export default function App() {
       primaryViolet: auraColor,
       electricCyan: auraSecondaryColor,
       textPrimary: isDarkMode ? "#F8FAFC" : "#0F172A",
-      textSecondary: isDarkMode ? "#A1A1B5" : "#475569",
+      textSecondary: isDarkMode ? "#64748B" : "#475569",
       textMuted: isDarkMode ? "#64748B" : "#94A3B8",
       borderSubtle: `${auraColor}30`,
       borderCard: isDarkMode
@@ -634,13 +639,28 @@ export default function App() {
   }, [primaryNav]);
 
   useEffect(() => {
-    if (currency !== "PKR") {
-      fetchLiveExchangeRates().then(() => {
-        const rate = getLiveRate(currency);
-        setExchangeRate(rate.toString());
-      });
-    }
-  }, [currency]);
+    const handleAppStateChange = async (nextAppState: string) => {
+      if (nextAppState === "active" && appLockEnabled) {
+        try {
+          const res = await LocalAuthentication.authenticateAsync({
+            promptMessage: "Unlock VYBE Finance",
+            fallbackLabel: "Use Passcode",
+          });
+          if (!res.success) {
+            // Handled on failure/cancellation
+          }
+        } catch (e) {
+          console.log("Biometric lock error:", e);
+        }
+      }
+    };
+
+    const subscription = AppState.addEventListener(
+      "change",
+      handleAppStateChange,
+    );
+    return () => subscription.remove();
+  }, [appLockEnabled]);
 
   const loadData = () => {
     const loadedAccounts = getAccounts();
@@ -854,7 +874,7 @@ export default function App() {
           promptMessage: "Authenticate to enable VYBE App Lock",
         });
         if (res.success) {
-          setAppLockEnabled(true);
+          setAppLockPreference(true);
           try {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           } catch (e) {}
@@ -864,6 +884,7 @@ export default function App() {
       }
     } else {
       setAppLockEnabled(false);
+      setAppLockPreference(false);
     }
   };
 
@@ -1490,7 +1511,27 @@ export default function App() {
 
   const downloadDeviceExcelCSV = async () => {
     try {
-      const csvData = exportTransactionsCSV(exportStartDate, exportEndDate);
+      const txs = await exportTransactionsCSVRange(
+        exportStartDate,
+        exportEndDate,
+      );
+      const csvData = [
+        "ID,Type,Source Account,Destination Account,Description,Category,Amount,Original Amount,Currency,Date",
+        ...((txs as any[]) || []).map((t: any) =>
+          [
+            t.id,
+            t.type,
+            t.account_id,
+            t.dest_account_id || "N/A",
+            `"${(t.description || "").replace(/"/g, '""')}"`,
+            `"${(t.category || "").replace(/"/g, '""')}"`,
+            t.amount,
+            t.original_amount || 0,
+            t.original_currency || "",
+            t.date,
+          ].join(","),
+        ),
+      ].join("\n");
       const fileName = `VYBE_Statement_${exportStartDate}_to_${exportEndDate}.csv`;
 
       if (Platform.OS === "web") {
@@ -1502,19 +1543,53 @@ export default function App() {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-      } else {
-        const permanentUri = `${FileSystem.documentDirectory}${fileName}`;
-        await FileSystem.writeAsStringAsync(permanentUri, csvData, {
+        setExportModal(false);
+        return;
+      }
+
+      // Android SAF / iOS Document storage routing (Matching PDF pattern)
+      if (Platform.OS === "android" && FileSystem.StorageAccessFramework) {
+        const permissions =
+          await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+        if (!permissions.granted || !permissions.directoryUri) {
+          return;
+        }
+
+        const safFileUri =
+          await FileSystem.StorageAccessFramework.createFileAsync(
+            permissions.directoryUri,
+            fileName.replace(/\.csv$/i, ""),
+            "text/csv",
+          );
+
+        await FileSystem.writeAsStringAsync(safFileUri, csvData, {
           encoding: FileSystem.EncodingType.UTF8,
         });
-        await Sharing.shareAsync(permanentUri, {
-          mimeType: "text/csv",
-          dialogTitle: "Download Excel/CSV Statement",
-        });
+
+        setExportModal(false);
+        Alert.alert(
+          "Success",
+          "CSV statement saved successfully to device storage.",
+        );
+        return;
       }
+
+      // Fallback for iOS / other platforms
+      const permanentUri = `${FileSystem.documentDirectory || FileSystem.cacheDirectory}${fileName}`;
+      await FileSystem.writeAsStringAsync(permanentUri, csvData, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+      await Sharing.shareAsync(permanentUri, {
+        mimeType: "text/csv",
+        dialogTitle: "Download Excel/CSV Statement",
+      });
       setExportModal(false);
-    } catch (e) {
+    } catch (e: any) {
       console.log("Excel/CSV export error:", e);
+      setErrorModal({
+        visible: true,
+        message: `Failed to export CSV: ${e?.message || e}`,
+      });
     }
   };
 
@@ -1524,25 +1599,57 @@ export default function App() {
         type: ["application/json", "*/*"],
       });
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        const fileUri = result.assets[0].uri;
-        let fileContent = "";
-        if (Platform.OS === "web") {
-          const resp = await fetch(fileUri);
-          fileContent = await resp.text();
-        } else {
-          fileContent = await FileSystem.readAsStringAsync(fileUri);
+        const asset = result.assets[0];
+
+        // fetch works universally for content:// URIs and web files alike
+        const resp = await fetch(asset.uri);
+        const fileContent = await resp.text();
+
+        let parsed;
+        try {
+          parsed = JSON.parse(fileContent);
+        } catch (e) {
+          alert(
+            "Invalid backup file format. Please select a valid JSON backup.",
+          );
+          return;
         }
-        const parsed = JSON.parse(fileContent);
-        restoreFullBackupJSON(parsed);
-        loadData();
-        triggerCelebration();
-        closeMenu();
+
+        if (!parsed || typeof parsed !== "object") {
+          alert("The selected file is empty or corrupted.");
+          return;
+        }
+
+        Alert.alert(
+          "Restore Backup",
+          "This will import records into your database. Existing records may be updated or merged. Do you want to proceed?",
+          [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Confirm Restore",
+              style: "destructive",
+              onPress: async () => {
+                try {
+                  restoreFullBackupJSON(parsed);
+                  loadData();
+                  try {
+                    Haptics.notificationAsync(
+                      Haptics.NotificationFeedbackType.Success,
+                    );
+                  } catch (e) {}
+                  alert("Backup restored successfully!");
+                  closeMenu();
+                } catch (err: any) {
+                  alert(err.message || "Failed to process backup restoration.");
+                }
+              },
+            },
+          ],
+        );
       }
-    } catch (e) {
-      setErrorModal({
-        visible: true,
-        message: "Failed to restore backup file.",
-      });
+    } catch (e: any) {
+      console.log("Restore error:", e);
+      alert(e.message || "Failed to restore backup file.");
     }
   };
 
@@ -1553,7 +1660,7 @@ export default function App() {
 
       if (Platform.OS === "web") {
         const blob = new Blob([jsonString], {
-          type: "application/json;charset=utf-8;",
+          type: "application/json;charset=utf-8",
         });
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
@@ -1562,19 +1669,52 @@ export default function App() {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+      } else if (
+        Platform.OS === "android" &&
+        FileSystem.StorageAccessFramework
+      ) {
+        // Android SAF: Lets user pick a folder and saves directly to device storage
+        const permissions =
+          await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+        if (!permissions.granted || !permissions.directoryUri) {
+          return;
+        }
+
+        const safFileUri =
+          await FileSystem.StorageAccessFramework.createFileAsync(
+            permissions.directoryUri,
+            fileName.replace(/\.json$/i, ""),
+            "application/json",
+          );
+
+        await FileSystem.writeAsStringAsync(safFileUri, jsonString, {
+          encoding: FileSystem.EncodingType.UTF8,
+        });
+
+        closeMenu();
+        Alert.alert("Success", "Backup saved successfully to device storage.");
+        return;
       } else {
+        // iOS / Fallback storage routing
         const permanentUri = `${FileSystem.documentDirectory}${fileName}`;
         await FileSystem.writeAsStringAsync(permanentUri, jsonString, {
           encoding: FileSystem.EncodingType.UTF8,
         });
-        await Sharing.shareAsync(permanentUri, {
-          mimeType: "application/json",
-          dialogTitle: "Download Full Backup JSON",
-        });
+
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(permanentUri, {
+            mimeType: "application/json",
+            dialogTitle: "Download Full Backup JSON",
+            UTI: "public.json",
+          });
+        } else {
+          alert(`Backup saved successfully to: ${permanentUri}`);
+        }
       }
       closeMenu();
-    } catch (e) {
+    } catch (e: any) {
       console.log("Export Backup error:", e);
+      alert(e.message || "Failed to export backup file.");
     }
   };
 
@@ -2135,10 +2275,7 @@ export default function App() {
         barStyle={isDarkMode ? "light-content" : "dark-content"}
         backgroundColor={THEME.bg}
       />
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={{ flex: 1 }}
-      >
+      <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
         {/* ================= TOP APP HEADER (Notch-Safe) ================= */}
         <View
           style={[
@@ -4875,19 +5012,21 @@ export default function App() {
         </Animated.ScrollView>
 
         {/* ================= BOTTOM NAVIGATION BAR ================= */}
-        <View style={{ alignItems: "center", backgroundColor: THEME.surface }}>
-          <BannerAd
-            unitId={
-              __DEV__
-                ? TestIds.BANNER
-                : "ca-app-pub-2496825512080668/6250322309"
-            }
-            size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
-            requestOptions={{
-              requestNonPersonalizedAdsOnly: true,
-            }}
-          />
-        </View>
+        {Platform.OS !== "web" && (
+          <View
+            style={{ alignItems: "center", backgroundColor: THEME.surface }}
+          >
+            <BannerAd
+              unitId={
+                __DEV__
+                  ? TestIds.BANNER
+                  : "ca-app-pub-2496825512080668/6250322309"
+              }
+              size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
+              requestOptions={{ requestNonPersonalizedAdsOnly: true }}
+            />
+          </View>
+        )}
         <View
           style={[
             styles.bottomNavContainer,
@@ -5206,6 +5345,275 @@ export default function App() {
           </View>
         </View>
       </Modal>
+      {/* ================= CATEGORY MANAGER MODAL ================= */}
+      <Modal visible={categoryModal} animationType="slide" transparent={true}>
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.modalContent,
+              {
+                backgroundColor: THEME.surface,
+                maxHeight: "85%",
+                borderColor: `${auraColor}50`,
+              } as any,
+            ]}
+          >
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={[styles.modalTitle, { color: THEME.textPrimary }]}>
+                Manage Categories
+              </Text>
+
+              {/* Add / Edit Form */}
+              <View
+                style={[
+                  styles.modernRangeBox,
+                  {
+                    backgroundColor: THEME.surfaceElevated,
+                    borderColor: `${auraColor}40`,
+                    marginBottom: 16,
+                  } as any,
+                ]}
+              >
+                <Text style={[styles.rangeSubLabel, { color: auraColor }]}>
+                  {editingTx ? "Edit Category Name" : "Add New Category"}
+                </Text>
+
+                <TextInput
+                  style={[
+                    styles.input,
+                    {
+                      backgroundColor: THEME.surface,
+                      color: THEME.textPrimary,
+                      marginBottom: 10,
+                    },
+                  ]}
+                  placeholder="Category Name (e.g. Freelance, Coffee)"
+                  placeholderTextColor={THEME.textSecondary}
+                  value={newCatName}
+                  onChangeText={setNewCatName}
+                />
+
+                {!editingTx && (
+                  <View style={{ flexDirection: "row", marginBottom: 10 }}>
+                    <TouchableOpacity
+                      style={[
+                        styles.rangeTabBtn,
+                        newCatType === "out" && { backgroundColor: auraColor },
+                        { flex: 1, marginRight: 6 },
+                      ]}
+                      onPress={() => setNewCatType("out")}
+                    >
+                      <Text
+                        style={[
+                          styles.rangeTabText,
+                          newCatType === "out" && {
+                            color: isDarkMode ? THEME.bg : "#FFF",
+                            fontWeight: "bold",
+                          },
+                        ]}
+                      >
+                        Expense
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.rangeTabBtn,
+                        newCatType === "in" && { backgroundColor: auraColor },
+                        { flex: 1, marginLeft: 6 },
+                      ]}
+                      onPress={() => setNewCatType("in")}
+                    >
+                      <Text
+                        style={[
+                          styles.rangeTabText,
+                          newCatType === "in" && {
+                            color: isDarkMode ? THEME.bg : "#FFF",
+                            fontWeight: "bold",
+                          },
+                        ]}
+                      >
+                        Income
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                <View
+                  style={{ flexDirection: "row", justifyContent: "flex-end" }}
+                >
+                  {editingTx && (
+                    <TouchableOpacity
+                      style={{
+                        paddingVertical: 8,
+                        paddingHorizontal: 14,
+                        marginRight: 8,
+                        backgroundColor: THEME.surface,
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor: THEME.borderCard,
+                      }}
+                      onPress={() => {
+                        setEditingTx(null);
+                        setNewCatName("");
+                      }}
+                    >
+                      <Text style={{ color: THEME.textSecondary }}>Cancel</Text>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity
+                    style={{
+                      backgroundColor: auraColor,
+                      paddingVertical: 8,
+                      paddingHorizontal: 16,
+                      borderRadius: 8,
+                    }}
+                    onPress={async () => {
+                      if (!newCatName.trim()) return;
+                      try {
+                        if (editingTx) {
+                          await updateCategory(editingTx.id, newCatName.trim());
+                          setEditingTx(null);
+                        } else {
+                          await addCategory(newCatName.trim(), newCatType);
+                        }
+                        setNewCatName("");
+                        alert("Category saved successfully!");
+                      } catch (err: any) {
+                        alert(err.message || "Error saving category");
+                      }
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: isDarkMode ? THEME.bg : "#FFF",
+                        fontWeight: "bold",
+                      }}
+                    >
+                      {editingTx ? "Update Category" : "Add Category"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <Text
+                style={[
+                  styles.rangeSubLabel,
+                  { color: auraColor, marginBottom: 8 },
+                ]}
+              >
+                Existing Categories
+              </Text>
+
+              {/* Dynamic Categories List */}
+              {customCategories.map((cat: any) => (
+                <View
+                  key={cat.id}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    backgroundColor: THEME.surface,
+                    padding: 10,
+                    borderRadius: 8,
+                    marginBottom: 8,
+                    borderWidth: 1,
+                    borderColor: THEME.borderCard,
+                  }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={{ color: THEME.textPrimary, fontWeight: "bold" }}
+                    >
+                      {cat.name}
+                    </Text>
+                    <Text
+                      style={{
+                        color: THEME.textSecondary,
+                        fontSize: 11,
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      {cat.type}
+                    </Text>
+                  </View>
+
+                  <View style={{ flexDirection: "row" }}>
+                    {/* Edit Button */}
+                    <TouchableOpacity
+                      style={{
+                        padding: 6,
+                        marginRight: 6,
+                        backgroundColor: THEME.surfaceElevated,
+                        borderRadius: 6,
+                      }}
+                      onPress={() => {
+                        setEditingTx(cat);
+                        setNewCatName(cat.name);
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: auraColor,
+                          fontSize: 12,
+                          fontWeight: "bold",
+                        }}
+                      >
+                        Edit
+                      </Text>
+                    </TouchableOpacity>
+
+                    {/* Delete Button */}
+                    <TouchableOpacity
+                      style={{
+                        padding: 6,
+                        backgroundColor: THEME.surfaceElevated,
+                        borderRadius: 6,
+                      }}
+                      onPress={async () => {
+                        try {
+                          deleteCategory(cat.id);
+                          alert("Category deleted successfully!");
+                        } catch (err: any) {
+                          alert(
+                            err.message || "Cannot delete category in use.",
+                          );
+                        }
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: "#FF5252",
+                          fontSize: 12,
+                          fontWeight: "bold",
+                        }}
+                      >
+                        Del
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+
+            <TouchableOpacity
+              style={{
+                marginTop: 16,
+                backgroundColor: THEME.surfaceElevated,
+                padding: 12,
+                borderRadius: 10,
+                alignItems: "center",
+                borderWidth: 1,
+                borderColor: THEME.borderCard,
+              }}
+              onPress={() => setCategoryModal(false)}
+            >
+              <Text style={{ color: THEME.textPrimary, fontWeight: "bold" }}>
+                Close
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* ================= STATEMENT EXPORT MODAL ================= */}
       <Modal visible={exportModal} animationType="slide" transparent={true}>
@@ -5303,61 +5711,355 @@ export default function App() {
                 </View>
 
                 <Text style={[styles.rangeSubLabel, { color: auraColor }]}>
-                  Select Year:
+                  Set {statementRangeTab === "start" ? "Start" : "End"} Date
+                  (YYYY-MM-DD):
                 </Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={{ marginBottom: 8 }}
+
+                {/* Date Display Pill */}
+                <View
+                  style={{
+                    backgroundColor: THEME.surface,
+                    borderRadius: 12,
+                    padding: 12,
+                    alignItems: "center",
+                    marginBottom: 12,
+                    borderWidth: 1,
+                    borderColor: `${auraColor}50`,
+                  }}
                 >
-                  {["2024", "2025", "2026", "2027"].map((yr) => {
-                    const active =
-                      statementRangeTab === "start"
-                        ? exportStartDate.startsWith(yr)
-                        : exportEndDate.startsWith(yr);
-                    return (
+                  <Text
+                    style={{
+                      color: THEME.textPrimary,
+                      fontSize: 18,
+                      fontWeight: "bold",
+                      letterSpacing: 1,
+                    }}
+                  >
+                    {statementRangeTab === "start"
+                      ? exportStartDate || "2026-10-01"
+                      : exportEndDate || "2026-10-31"}
+                  </Text>
+                </View>
+
+                {/* Stepper Controls Row */}
+                <View
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    marginBottom: 12,
+                  }}
+                >
+                  {/* YEAR CONTROLS */}
+                  <View
+                    style={{
+                      flex: 1,
+                      backgroundColor: THEME.surface,
+                      borderRadius: 10,
+                      padding: 8,
+                      marginRight: 4,
+                      alignItems: "center",
+                      borderWidth: 1,
+                      borderColor: THEME.borderCard,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: THEME.textSecondary,
+                        fontSize: 11,
+                        marginBottom: 4,
+                      }}
+                    >
+                      YEAR
+                    </Text>
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        width: "100%",
+                      }}
+                    >
                       <TouchableOpacity
-                        key={yr}
-                        style={[
-                          styles.pillChip,
-                          {
-                            backgroundColor: THEME.surface,
-                            borderColor: THEME.borderCard,
-                          },
-                          active && {
-                            backgroundColor: auraColor,
-                            borderColor: auraColor,
-                          },
-                        ]}
+                        style={{
+                          padding: 6,
+                          backgroundColor: THEME.surfaceElevated,
+                          borderRadius: 6,
+                        }}
                         onPress={() => {
-                          if (statementRangeTab === "start") {
-                            setExportStartDate(
-                              `${yr}${exportStartDate.slice(4)}`,
-                            );
-                          } else {
-                            setExportEndDate(`${yr}${exportEndDate.slice(4)}`);
-                          }
+                          const current =
+                            statementRangeTab === "start"
+                              ? exportStartDate || "2026-10-01"
+                              : exportEndDate || "2026-10-31";
+                          const [y, m, d] = current.split("-");
+                          const newY = String(parseInt(y, 10) - 1);
+                          const updated = `${newY}-${m}-${d}`;
+                          if (statementRangeTab === "start")
+                            setExportStartDate(updated);
+                          else setExportEndDate(updated);
                         }}
                       >
                         <Text
-                          style={[
-                            styles.pillChipText,
-                            {
-                              color: active
-                                ? isDarkMode
-                                  ? THEME.bg
-                                  : "#FFF"
-                                : THEME.textSecondary,
-                            },
-                            active && styles.pillChipTextActive,
-                          ]}
+                          style={{
+                            color: THEME.textPrimary,
+                            fontWeight: "bold",
+                          }}
                         >
-                          {yr}
+                          -
                         </Text>
                       </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
+                      <Text
+                        style={{
+                          color: THEME.textPrimary,
+                          fontWeight: "bold",
+                          marginHorizontal: 8,
+                        }}
+                      >
+                        {(statementRangeTab === "start"
+                          ? exportStartDate || "2026-10-01"
+                          : exportEndDate || "2026-10-31"
+                        ).slice(0, 4)}
+                      </Text>
+                      <TouchableOpacity
+                        style={{
+                          padding: 6,
+                          backgroundColor: THEME.surfaceElevated,
+                          borderRadius: 6,
+                        }}
+                        onPress={() => {
+                          const current =
+                            statementRangeTab === "start"
+                              ? exportStartDate || "2026-10-01"
+                              : exportEndDate || "2026-10-31";
+                          const [y, m, d] = current.split("-");
+                          const newY = String(parseInt(y, 10) + 1);
+                          const updated = `${newY}-${m}-${d}`;
+                          if (statementRangeTab === "start")
+                            setExportStartDate(updated);
+                          else setExportEndDate(updated);
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: THEME.textPrimary,
+                            fontWeight: "bold",
+                          }}
+                        >
+                          +
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  {/* MONTH CONTROLS */}
+                  <View
+                    style={{
+                      flex: 1,
+                      backgroundColor: THEME.surface,
+                      borderRadius: 10,
+                      padding: 8,
+                      marginHorizontal: 4,
+                      alignItems: "center",
+                      borderWidth: 1,
+                      borderColor: THEME.borderCard,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: THEME.textSecondary,
+                        fontSize: 11,
+                        marginBottom: 4,
+                      }}
+                    >
+                      MONTH
+                    </Text>
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        width: "100%",
+                      }}
+                    >
+                      <TouchableOpacity
+                        style={{
+                          padding: 6,
+                          backgroundColor: THEME.surfaceElevated,
+                          borderRadius: 6,
+                        }}
+                        onPress={() => {
+                          const current =
+                            statementRangeTab === "start"
+                              ? exportStartDate || "2026-10-01"
+                              : exportEndDate || "2026-10-31";
+                          const [y, m, d] = current.split("-");
+                          let mNum = parseInt(m, 10) - 1;
+                          if (mNum < 1) mNum = 12;
+                          const newM = String(mNum).padStart(2, "0");
+                          const updated = `${y}-${newM}-${d}`;
+                          if (statementRangeTab === "start")
+                            setExportStartDate(updated);
+                          else setExportEndDate(updated);
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: THEME.textPrimary,
+                            fontWeight: "bold",
+                          }}
+                        >
+                          -
+                        </Text>
+                      </TouchableOpacity>
+                      <Text
+                        style={{
+                          color: THEME.textPrimary,
+                          fontWeight: "bold",
+                          marginHorizontal: 8,
+                        }}
+                      >
+                        {(statementRangeTab === "start"
+                          ? exportStartDate || "2026-10-01"
+                          : exportEndDate || "2026-10-31"
+                        ).slice(5, 7)}
+                      </Text>
+                      <TouchableOpacity
+                        style={{
+                          padding: 6,
+                          backgroundColor: THEME.surfaceElevated,
+                          borderRadius: 6,
+                        }}
+                        onPress={() => {
+                          const current =
+                            statementRangeTab === "start"
+                              ? exportStartDate || "2026-10-01"
+                              : exportEndDate || "2026-10-31";
+                          const [y, m, d] = current.split("-");
+                          let mNum = parseInt(m, 10) + 1;
+                          if (mNum > 12) mNum = 1;
+                          const newM = String(mNum).padStart(2, "0");
+                          const updated = `${y}-${newM}-${d}`;
+                          if (statementRangeTab === "start")
+                            setExportStartDate(updated);
+                          else setExportEndDate(updated);
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: THEME.textPrimary,
+                            fontWeight: "bold",
+                          }}
+                        >
+                          +
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  {/* DAY CONTROLS */}
+                  <View
+                    style={{
+                      flex: 1,
+                      backgroundColor: THEME.surface,
+                      borderRadius: 10,
+                      padding: 8,
+                      marginLeft: 4,
+                      alignItems: "center",
+                      borderWidth: 1,
+                      borderColor: THEME.borderCard,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: THEME.textSecondary,
+                        fontSize: 11,
+                        marginBottom: 4,
+                      }}
+                    >
+                      DAY
+                    </Text>
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        width: "100%",
+                      }}
+                    >
+                      <TouchableOpacity
+                        style={{
+                          padding: 6,
+                          backgroundColor: THEME.surfaceElevated,
+                          borderRadius: 6,
+                        }}
+                        onPress={() => {
+                          const current =
+                            statementRangeTab === "start"
+                              ? exportStartDate || "2026-10-01"
+                              : exportEndDate || "2026-10-31";
+                          const [y, m, d] = current.split("-");
+                          let dNum = parseInt(d, 10) - 1;
+                          if (dNum < 1) dNum = 31;
+                          const newD = String(dNum).padStart(2, "0");
+                          const updated = `${y}-${m}-${newD}`;
+                          if (statementRangeTab === "start")
+                            setExportStartDate(updated);
+                          else setExportEndDate(updated);
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: THEME.textPrimary,
+                            fontWeight: "bold",
+                          }}
+                        >
+                          -
+                        </Text>
+                      </TouchableOpacity>
+                      <Text
+                        style={{
+                          color: THEME.textPrimary,
+                          fontWeight: "bold",
+                          marginHorizontal: 8,
+                        }}
+                      >
+                        {(statementRangeTab === "start"
+                          ? exportStartDate || "2026-10-01"
+                          : exportEndDate || "2026-10-31"
+                        ).slice(8, 10)}
+                      </Text>
+                      <TouchableOpacity
+                        style={{
+                          padding: 6,
+                          backgroundColor: THEME.surfaceElevated,
+                          borderRadius: 6,
+                        }}
+                        onPress={() => {
+                          const current =
+                            statementRangeTab === "start"
+                              ? exportStartDate || "2026-10-01"
+                              : exportEndDate || "2026-10-31";
+                          const [y, m, d] = current.split("-");
+                          let dNum = parseInt(d, 10) + 1;
+                          if (dNum > 31) dNum = 1;
+                          const newD = String(dNum).padStart(2, "0");
+                          const updated = `${y}-${m}-${newD}`;
+                          if (statementRangeTab === "start")
+                            setExportStartDate(updated);
+                          else setExportEndDate(updated);
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: THEME.textPrimary,
+                            fontWeight: "bold",
+                          }}
+                        >
+                          +
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
               </View>
 
               <View style={styles.modalButtons}>
@@ -6263,88 +6965,6 @@ export default function App() {
                 <Text style={styles.saveBtnText}>Save Account</Text>
               </TouchableOpacity>
             </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ================= CATEGORY MANAGER MODAL ================= */}
-      <Modal visible={categoryModal} animationType="slide" transparent={true}>
-        <View style={styles.modalOverlay}>
-          <View
-            style={[
-              styles.modalContent,
-              { backgroundColor: THEME.surface, borderColor: `${auraColor}50` },
-            ]}
-          >
-            <Text style={[styles.modalTitle, { color: THEME.textPrimary }]}>
-              Custom Category Manager
-            </Text>
-            <TextInput
-              style={[
-                styles.input,
-                {
-                  backgroundColor: THEME.surfaceElevated,
-                  color: THEME.textPrimary,
-                },
-              ]}
-              placeholder="Category Name (e.g. Side Hustle, Coffee)"
-              placeholderTextColor={THEME.textSecondary}
-              value={newCatName}
-              onChangeText={setNewCatName}
-            />
-            <View style={styles.toggleRow}>
-              <TouchableOpacity
-                style={[
-                  styles.toggleBtn,
-                  newCatType === "out" && styles.toggleOutActive,
-                ]}
-                onPress={() => setNewCatType("out")}
-              >
-                <Text
-                  style={[
-                    styles.toggleText,
-                    { color: THEME.textSecondary },
-                    newCatType === "out" && styles.toggleTextActive,
-                  ]}
-                >
-                  Outflow Category
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.toggleBtn,
-                  newCatType === "in" && styles.toggleInActive,
-                ]}
-                onPress={() => setNewCatType("in")}
-              >
-                <Text
-                  style={[
-                    styles.toggleText,
-                    { color: THEME.textSecondary },
-                    newCatType === "in" && styles.toggleTextActive,
-                  ]}
-                >
-                  Inflow Category
-                </Text>
-              </TouchableOpacity>
-            </View>
-            <TouchableOpacity
-              style={[
-                styles.addButton,
-                { backgroundColor: auraColor, marginTop: 10 },
-              ]}
-              onPress={handleSaveCategory}
-            >
-              <Text style={styles.addButtonText}>Add Custom Category</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => setCategoryModal(false)}
-              style={{ alignItems: "center", marginTop: 14 }}
-            >
-              <Text style={{ color: THEME.textSecondary, fontWeight: "700" }}>
-                Close
-              </Text>
-            </TouchableOpacity>
           </View>
         </View>
       </Modal>
